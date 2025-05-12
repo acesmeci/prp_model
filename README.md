@@ -18,17 +18,7 @@ This project replicates key simulations from the paper _"On the Rational Bounded
 
 ---
 
-## 📁 Folder Structure
-
-prp_model/
-├── lca.py # LCA decision dynamics
-├── nn_wrapper.py # Model training wrapper
-├── task_network.py # Feedforward network definition
-├── task_generator.py # Single-task pattern generation
-├── multitask_generator.py # Multitask (dual-task) pattern generation
-├── prp_simulator.py # Main PRP simulation + sweep_soa()
-├── training_utils.py # High-level training functions
-├── init.py
+<pre lang="markdown"> ## 📁 Folder Structure ``` prp_model/ ├── lca.py # LCA decision dynamics ├── nn_wrapper.py # Model training wrapper ├── task_network.py # Feedforward network definition ├── task_generator.py # Single-task pattern generation ├── multitask_generator.py # Multitask (dual-task) pattern generation ├── prp_simulator.py # Main PRP simulation + sweep_soa() ├── training_utils.py # High-level training functions ├── __init__.py ``` </pre>
 
 ---
 
