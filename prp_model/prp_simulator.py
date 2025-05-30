@@ -1,5 +1,5 @@
 import numpy as np
-from lca import run_lca
+from prp_model.lca import run_lca
 
 def run_prp_trial(task_net, input_a, input_b, task_a, task_b,
                   soa, max_timesteps=100, threshold=1.0,
