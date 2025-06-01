@@ -86,6 +86,11 @@ def train_with_control_config(task_net, train_data_fn, n_epochs=100,
                                    tau_net=tau_net, tau_task=tau_task,
                                    persistence=persistence, return_tensor=True)
             output = output_series[-1]
+            if epoch == 0 and i == 0:
+                print("Sample output at start of training:", output.detach().cpu().numpy())
+                print("Target for comparison:", target.detach().cpu().numpy())
+                print("Loss value:", task_net.loss_fn(output, target).item())
+                print("Requires grad?", output.requires_grad)
 
 
             task_net.optimizer.zero_grad()

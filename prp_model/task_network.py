@@ -30,10 +30,12 @@ class TaskNetwork(nn.Module):
         tau_net: scaling of task→hidden
         tau_task: scaling of task→output
         """
-        x = torch.cat((stim_input, task_input), dim=1)  # (batch_size, 18)
-        h = self.activation_fn(
-            self.fc_input_to_hidden(x) + tau_net * self.task_to_hidden(task_input)
-        )
-        out = self.fc_hidden_to_output(h) + tau_task * self.task_to_output(task_input)
-        return out
+        x = torch.cat((stim_input, task_input), dim=1)
+        
+        net_hidden = self.fc_input_to_hidden(x) + tau_net * self.task_to_hidden(task_input) - 2.0
+        h = self.activation_fn(net_hidden)
+
+        net_output = self.fc_hidden_to_output(h) + tau_task * self.task_to_output(task_input) - 2.0
+        return net_output
+
 

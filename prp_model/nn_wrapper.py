@@ -10,7 +10,7 @@ class TaskNetworkWrapper:
                  hidden_size=100,
                  output_size=9,
                  learning_rate=0.001,
-                 activation="relu",
+                 activation="sigmoid", # I changed this to sigmoid June 1st, 2025
                  device="cpu"):
 
         self.device = torch.device(device)
@@ -108,7 +108,8 @@ class TaskNetworkWrapper:
 
                 # --- Hidden Layer ---
                 net_hidden = self.model.fc_input_to_hidden(torch.cat([stim, task], dim=1)) + \
-                            tau_net * self.model.task_to_hidden(task)
+                             tau_net * self.model.task_to_hidden(task) - 2.0 # Added -2 bias term
+
 
                 if hidden_prev_net is not None:
                     net_hidden = (1 - persistence) * net_hidden + persistence * hidden_prev_net
@@ -117,7 +118,7 @@ class TaskNetworkWrapper:
                 hidden_prev_net = net_hidden  # Save for next time step
 
                 # --- Output Layer ---
-                net_output = self.model.fc_hidden_to_output(hidden) + tau_task * self.model.task_to_output(task)
+                net_output = self.model.fc_hidden_to_output(hidden) + tau_task * self.model.task_to_output(task) - 2.0 # Added -2 bias term
 
                 if output_prev_net is not None:
                     net_output = (1 - persistence) * net_output + persistence * output_prev_net
