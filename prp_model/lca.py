@@ -49,3 +49,36 @@ def run_lca(input_series,
             return rt, choice, trajectory
 
     return None, None, trajectory
+
+# Get RTs and accuracy across 100 simulations, instead of just one
+def run_lca_avg(input_series, relevant_output_indices,
+                n_repeats=100, dt=0.1, max_timesteps=100,
+                lambda_=0.4, alpha=0.2, beta=0.2,
+                noise_std=0.2, threshold=1.5, t0=0.15):
+    
+    rts = []
+    corrects = []
+    for _ in range(n_repeats):
+        rt, choice, _ = run_lca(
+            input_series,
+            relevant_output_indices,
+            dt=dt,
+            max_timesteps=max_timesteps,
+            lambda_=lambda_,
+            alpha=alpha,
+            beta=beta,
+            noise_std=noise_std,
+            threshold=threshold,
+            t0=t0
+        )
+        if rt is not None:
+            rts.append(rt)
+            corrects.append(choice)
+
+    if not rts:
+        return None, None  # No threshold crossings
+
+    avg_rt = np.mean(rts)
+    most_common_choice = max(set(corrects), key=corrects.count)
+    return avg_rt, most_common_choice
+

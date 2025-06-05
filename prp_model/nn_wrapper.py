@@ -9,14 +9,14 @@ class TaskNetworkWrapper:
                  input_size=18,
                  hidden_size=100,
                  output_size=9,
-                 learning_rate=0.001,
+                 learning_rate=0.3, # !!!I used 0.001 but paper uses 0.3!!!
                  activation="sigmoid", # I changed this to sigmoid June 1st, 2025
                  device="cpu"):
 
         self.device = torch.device(device)
         self.model = TaskNetwork(input_size, hidden_size, output_size, activation).to(self.device)
         self.loss_fn = nn.MSELoss()
-        self.optimizer = optim.Adam(self.model.parameters(), lr=learning_rate)
+        self.optimizer = torch.optim.SGD(self.model.parameters(), lr=learning_rate)
 
         # Logging
         self.loss_log = []
@@ -144,3 +144,48 @@ class TaskNetworkWrapper:
             "input_to_hidden": self.model.fc_input_to_hidden.weight.data.cpu().numpy(),
             "hidden_to_output": self.model.fc_hidden_to_output.weight.data.cpu().numpy()
         }
+    
+    # for quantifying representational overlap in the hidden layer
+    def get_hidden_activation(self, stim_input, task_input, tau_net=1.0):
+        x = torch.cat((stim_input, task_input), dim=0).unsqueeze(0).to(self.device)
+        t = task_input.unsqueeze(0).to(self.device)
+
+        net_hidden = self.model.fc_input_to_hidden(x) + tau_net * self.model.task_to_hidden(t) - 2.0
+        h = self.model.activation_fn(net_hidden)
+        return h.squeeze().detach().cpu().numpy()
+    
+    def get_output_net_input_series(self, input_series, task_series, tau_net=1.0, tau_task=1.0, persistence=0.0):
+        """
+        Returns net input to output units per time step — BEFORE nonlinearity.
+        """
+        self.model.eval()
+        net_outputs = []
+
+        hidden_prev_net = None
+        output_prev_net = None
+
+        with torch.no_grad():
+            for s_t, t_t in zip(input_series, task_series):
+                stim = torch.tensor(s_t, dtype=torch.float32).unsqueeze(0).to(self.device)
+                task = torch.tensor(t_t, dtype=torch.float32).unsqueeze(0).to(self.device)
+
+                net_hidden = self.model.fc_input_to_hidden(torch.cat([stim, task], dim=1)) + \
+                            tau_net * self.model.task_to_hidden(task) - 2.0
+
+                if hidden_prev_net is not None:
+                    net_hidden = (1 - persistence) * net_hidden + persistence * hidden_prev_net
+                hidden = self.model.activation_fn(net_hidden)
+                hidden_prev_net = net_hidden
+
+                net_output = self.model.fc_hidden_to_output(hidden) + tau_task * self.model.task_to_output(task) - 2.0
+
+                if output_prev_net is not None:
+                    net_output = (1 - persistence) * net_output + persistence * output_prev_net
+
+                net_outputs.append(net_output.squeeze().cpu().numpy())
+                output_prev_net = net_output
+
+        return net_outputs
+
+
+

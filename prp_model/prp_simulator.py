@@ -1,5 +1,7 @@
 import numpy as np
 from prp_model.lca import run_lca
+from prp_model.lca import run_lca_avg
+
 
 def run_prp_trial(task_net, input_a, input_b, task_a, task_b,
                   soa, max_timesteps=100, threshold=1.0,
@@ -54,12 +56,15 @@ def run_prp_trial(task_net, input_a, input_b, task_a, task_b,
     in_dim_b, out_dim_b = np.argwhere(task_matrix_b == 1)[0]
     relevant_outputs_b = list(range(out_dim_b * N_features, (out_dim_b + 1) * N_features))
 
-    rt_b, choice_b, _ = run_lca(
-        input_series=output_series[soa:],  # only process B starting at SOA
+    # !!!Changed run_lca to run_lca_avg. Do the same for Task A later on!!!
+    rt_b, choice_b = run_lca_avg(
+        input_series=output_series[soa:],
         relevant_output_indices=relevant_outputs_b,
+        n_repeats=100,
         threshold=threshold,
         max_timesteps=max_timesteps - soa
     )
+
     if rt_b is not None:
         rt_b += soa * 0.1  # convert back to full timeline
 
@@ -72,10 +77,10 @@ def sweep_soa(task_net,
               trial_generator,
               soa_values,
               n_trials_per_soa=10,
-              threshold=0.5,
+              threshold=1.0, # Figure out correct threshold value
               max_timesteps=50,
-              tau_net=1.0,
-              tau_task=1.0,
+              tau_net=0.2,
+              tau_task=0.2,
               persistence=0.0,
               verbose=False):
     """
