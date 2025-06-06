@@ -5,12 +5,13 @@ def run_lca(input_series,
             relevant_output_indices,
             dt=0.1,
             max_timesteps=100,
-            lambda_=0.4, 
-            alpha=0.2,
-            beta=0.2,
-            noise_std=0.2,
-            threshold=1.5,
-            t0=0.15):
+            lambda_=0.4, # 0.4 
+            alpha=0.2, # 0.2
+            beta=0.2, # 0.2
+            noise_std=0.2, # 0.2
+            threshold=1.0, # Figure out threshold based on the paper
+            t0=0.15 # 0.15
+           ):
     """
     Simulates LCA dynamics over time for a set of output units.
 
@@ -54,7 +55,7 @@ def run_lca(input_series,
 def run_lca_avg(input_series, relevant_output_indices,
                 n_repeats=100, dt=0.1, max_timesteps=100,
                 lambda_=0.4, alpha=0.2, beta=0.2,
-                noise_std=0.2, threshold=1.5, t0=0.15):
+                noise_std=0.2, threshold=1.0, t0=0.15):
     
     rts = []
     corrects = []

@@ -76,12 +76,12 @@ def run_prp_trial(task_net, input_a, input_b, task_a, task_b,
 def sweep_soa(task_net,
               trial_generator,
               soa_values,
-              n_trials_per_soa=10,
+              n_trials_per_soa=10, # Figure out correct number of trials
               threshold=1.0, # Figure out correct threshold value
               max_timesteps=50,
-              tau_net=0.2,
-              tau_task=0.2,
-              persistence=0.0,
+              tau_net=0.2, # 0.2
+              tau_task=0.2, # 0.2
+              persistence=0.0, # Paper: 0.0, 0.5, 0.8, 0.9
               verbose=False):
     """
     Runs PRP simulation across a range of SOAs using the updated continuous input version.

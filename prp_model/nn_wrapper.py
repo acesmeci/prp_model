@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
-import torch.optim as optim
-import numpy as np
+import torch.optim # as optim
+import numpy # as np
 from prp_model.task_network import TaskNetwork
 
 class TaskNetworkWrapper:
@@ -80,7 +80,7 @@ class TaskNetworkWrapper:
         return output.cpu().numpy().flatten()
 
     def integrate(self, input_series, task_series,
-              tau_net=1.0, tau_task=1.0, persistence=0.0, 
+              tau_net=0.2, tau_task=0.2, persistence=0.0, 
               return_tensor=False):
         """
         Simulates network forward pass over a time series with optional persistence.
