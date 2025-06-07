@@ -1,15 +1,18 @@
 import numpy as np
 from prp_model.lca import run_lca
 from prp_model.lca import run_lca_avg
+from prp_model.choose_onset_policy import choose_onset_policy
 
 
 def run_prp_trial(task_net, input_a, input_b, task_a, task_b,
                   soa, max_timesteps=100, threshold=1.0,
                   tau_net=0.2, tau_task=0.2, persistence=0.5):
     """
-    Continuous PRP trial: Task A starts at t=0, Task B starts at t=SOA.
-    Both are processed in parallel, with interference emerging from overlap.
+    Continuous PRP trial: Task A starts at t=0, Task B starts at t=onset_b (≥ SOA).
+    Task A onset is optimized for reward rate.
     """
+    from prp_model.choose_onset_policy import choose_onset_policy
+
     input_dim = input_a.shape[0]
     task_dim = task_a.shape[0]
     N_pathways = 3
@@ -17,6 +20,19 @@ def run_prp_trial(task_net, input_a, input_b, task_a, task_b,
 
     input_series = []
     task_series = []
+
+    onset_b = choose_onset_policy(
+        task_net=task_net,
+        input_a=input_a,
+        input_b=input_b,
+        task_a=task_a,
+        task_b=task_b,
+        soa=soa,
+        threshold=threshold,
+        tau_net=tau_net,
+        tau_task=tau_task,
+        persistence=persistence
+    )
 
     for t in range(max_timesteps):
         stim_t = np.zeros(input_dim)
@@ -26,51 +42,53 @@ def run_prp_trial(task_net, input_a, input_b, task_a, task_b,
             stim_t += input_a
             task_t += task_a
 
-        if t >= soa:
+        if t >= onset_b:
             stim_t += input_b
-            task_t += task_b  # both tasks are active after SOA
+            task_t += task_b
 
         input_series.append(stim_t)
         task_series.append(task_t)
 
     # Run forward pass with both tasks present
-    output_series = task_net.integrate(input_series, task_series,
-                                       tau_net=tau_net, tau_task=tau_task, 
-                                       persistence=persistence)
+    output_series = task_net.integrate(
+        input_series, task_series,
+        tau_net=tau_net, tau_task=tau_task,
+        persistence=persistence
+    )
 
-    # --- Task A RT ---
+    # --- Task A (first) ---
     task_matrix_a = task_a.reshape(N_pathways, N_pathways).T
     in_dim_a, out_dim_a = np.argwhere(task_matrix_a == 1)[0]
-    relevant_outputs_a = list(range(out_dim_a * N_features, (out_dim_a + 1) * N_features))
+    output_idxs_a = list(range(out_dim_a * N_features, (out_dim_a + 1) * N_features))
 
     rt_a, choice_a, _ = run_lca(
         input_series=output_series,
-        relevant_output_indices=relevant_outputs_a,
+        relevant_output_indices=output_idxs_a,
         threshold=threshold,
         max_timesteps=max_timesteps
     )
     acc_a = (choice_a == np.argmax(input_a[in_dim_a * N_features : (in_dim_a + 1) * N_features]))
 
-    # --- Task B RT ---
+    # --- Task B (second) ---
     task_matrix_b = task_b.reshape(N_pathways, N_pathways).T
     in_dim_b, out_dim_b = np.argwhere(task_matrix_b == 1)[0]
-    relevant_outputs_b = list(range(out_dim_b * N_features, (out_dim_b + 1) * N_features))
+    output_idxs_b = list(range(out_dim_b * N_features, (out_dim_b + 1) * N_features))
 
-    # !!!Changed run_lca to run_lca_avg. Do the same for Task A later on!!!
     rt_b, choice_b = run_lca_avg(
-        input_series=output_series[soa:],
-        relevant_output_indices=relevant_outputs_b,
+        input_series=output_series[onset_b:],
+        relevant_output_indices=output_idxs_b,
         n_repeats=100,
         threshold=threshold,
-        max_timesteps=max_timesteps - soa
+        max_timesteps=max_timesteps - onset_b
     )
 
     if rt_b is not None:
-        rt_b += soa * 0.1  # convert back to full timeline
+        rt_b += onset_b * 0.1  # Correct timeline reference
 
     acc_b = (choice_b == np.argmax(input_b[in_dim_b * N_features : (in_dim_b + 1) * N_features]))
 
     return rt_a, acc_a, rt_b, acc_b, output_series
+
 
 # Sweep SOA function simulating various SOAs
 def sweep_soa(task_net,

@@ -38,17 +38,3 @@ class TaskNetwork(nn.Module):
         net_output = self.fc_hidden_to_output(h) + tau_task * self.task_to_output(task_input) - 2.0
         return net_output
     
-    """
-    # I added this to nn_wrapper instead. If that works delete this.
-    def get_hidden_activation(self, stim_input, task_input, tau_net=1.0):
-        x = torch.cat((stim_input, task_input), dim=0).unsqueeze(0).to(self.device)
-        t = task_input.unsqueeze(0).to(self.device)
-
-        net_hidden = self.model.fc_input_to_hidden(x) + tau_net * self.model.task_to_hidden(t) - 2.0
-        h = self.model.activation_fn(net_hidden)
-        return h.squeeze().detach().cpu().numpy()
-    """
-
-
-
-

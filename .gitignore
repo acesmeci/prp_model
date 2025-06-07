@@ -2,3 +2,14 @@ __pycache__/
 *.ipynb_checkpoints/
 *.pt
 .venv/
+
+# Ignore all outputs and plots
+output/
+*.png
+
+# Ignore virtual environments
+.venv/
+__pycache__/
+
+todo.md
+troubleshooting_log.md
