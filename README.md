@@ -2,56 +2,86 @@
 
 A neural network model of the **Psychological Refractory Period (PRP)** effect, adapted from Musslick et al. (2023), implemented in PyTorch.
 
-This project replicates Simulation 3 from the paper _"On the Rational Boundedness of Cognitive Control: Shared Versus Separated Representations"_ to explore how shared representations, graded conflict and persistence contribute to multi-task interference.
+This project replicates **Simulation Study 3** from:
+
+> Musslick, S., et al. (2023).  
+> *On the Rational Boundedness of Cognitive Control: Shared Versus Separated Representations.*
+
+The model investigates how shared task representations, conflict, and control policies affect multitasking performance under dual-task interference.
 
 ---
 
-## Folder Structure
+## 📁 Project Structure
 
-prp_model/
-- lca.py # LCA decision dynamics
-- nn_wrapper.py # Model training wrapper
-- task_network.py # Feedforward network definition
-- task_generator.py # Single-task pattern generation
-- multitask_generator.py # Multitask (dual-task) pattern generation
-- prp_simulator.py # Main PRP simulation + sweep_soa()
-- training_utils.py # High-level training functions
-
----
-
-## Features
-
-- Continuous-time stimulus and task input stream
-- Tau-modulated task control (`tau_net`, `tau_task`)
-- LCA (Leaky Competing Accumulator) dynamics for decision-making
-- Persistence integration to simulate temporal smoothing
-- Single-task vs. multitask training toggle
-- PRP curve evaluation (Task B RT and error vs. SOA)
-- Hidden layer activation visualization (PCA & cosine similarity)
+PRP_Model/
+├── prp/ # Core model modules
+│ ├── task_network.py # Feedforward network architecture
+│ ├── nn_wrapper.py # Training + integration interface
+│ ├── lca.py # LCA decision dynamics
+│ ├── task_generator.py # Single-task pattern generation (A–E)
+│ ├── multitask_generator.py # Valid dual-task combinations
+│ ├── prp_simulator.py # PRP trial logic and sweep_soa
+│ ├── choose_onset_policy.py # Reward-rate-optimized Task 2 onset
+│ └── training_utils.py # High-level training wrappers
+│
+├── scripts/ # CLI entry points
+│ └── train_model.py # Training pipeline with early stopping
+│
+├── notebooks/ # Experimental notebooks
+├── output/ # Plots, saved models, etc.
+├── requirements.txt
+└── README.md
 
 ---
 
-## Quick Start
+## 🚀 Features
+
+- ✅ Feedforward NN with task-based modulation (`tau_net`, `tau_task`)
+- ✅ **Online training** with MSE loss and fixed bias terms
+- ✅ Decision dynamics via **Leaky Competing Accumulator (LCA)**
+- ✅ **Persistence** modeling for temporal integration
+- ✅ Optional multitask pretraining
+- ✅ PRP behavior simulation via `sweep_soa()`
+- ✅ **Reward-maximizing Task 2 onset policy**
+- ✅ Diagnostic tools for:
+  - Single-task decoding
+  - Multitask interference
+  - Hidden layer structure (correlation matrix)
+
+---
+
+## ⚡ Quick Start
 
 ### 1. Clone the repository
-
 ```bash
 git clone https://github.com/acesmeci/prp_model.git
 cd prp_model
 ```
 
-### 2. Run inside a Python script or Jupyter/Colab notebook
+### 2. Create and activate virtual environment
 
 ```bash
-from prp_model.prp_simulator import sweep_soa
-from prp_model.training_utils import train_with_optional_multitask
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
 ```
 
-### 3. Train and evaluate
+### 3. Train the model
 
-Use `train_with_optional_multitask()` to train the model with or without multitasking.
+```bash
+PYTHONPATH=$(pwd) python scripts/train_model.py
+```
 
-Use `sweep_soa()` to simulate the PRP paradigm and analyze reaction times across SOAs.
+### 4. Use in a notebook
+
+```bash
+from prp.nn_wrapper import TaskNetworkWrapper
+net = TaskNetworkWrapper()
+net.model.load_state_dict(torch.load("output/trained_model.pth"))
+
+from prp.task_generator import generate_fixed_task_set
+from prp.prp_simulator import sweep_soa
+```
 
 ## Reference
 Musslick, S., et al. (2023).

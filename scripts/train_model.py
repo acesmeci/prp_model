@@ -9,7 +9,7 @@ inp, task, target, _ = generate_fixed_task_set(
 )
 
 net = TaskNetworkWrapper(hidden_size=100)
-net.train_online(inp, task, target, stop_loss=0.001)
+net.train_online(inp, task, target, stop_loss=0.005) # Paper stop_loss = 0.001
 
 # Save model after training
 torch.save(net.model.state_dict(), "output/trained_model.pth")
