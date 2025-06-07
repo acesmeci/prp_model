@@ -1,7 +1,7 @@
 import numpy as np
-from prp_model.lca import run_lca
-from prp_model.lca import run_lca_avg
-from prp_model.choose_onset_policy import choose_onset_policy
+from prp.lca import run_lca
+from prp.lca import run_lca_avg
+from prp.choose_onset_policy import choose_onset_policy
 
 
 def run_prp_trial(task_net, input_a, input_b, task_a, task_b,
@@ -11,7 +11,7 @@ def run_prp_trial(task_net, input_a, input_b, task_a, task_b,
     Continuous PRP trial: Task A starts at t=0, Task B starts at t=onset_b (≥ SOA).
     Task A onset is optimized for reward rate.
     """
-    from prp_model.choose_onset_policy import choose_onset_policy
+    from prp.choose_onset_policy import choose_onset_policy
 
     input_dim = input_a.shape[0]
     task_dim = task_a.shape[0]

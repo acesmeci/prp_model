@@ -1,4 +1,4 @@
-from prp_model.lca import run_lca_avg  
+from prp.lca import run_lca_avg  
 import numpy as np
 
 def choose_onset_policy(task_net, input_a, input_b, task_a, task_b,

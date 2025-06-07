@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.optim
-from prp_model.task_network import TaskNetwork
+from prp.task_network import TaskNetwork
 
 class TaskNetworkWrapper:
     def __init__(self,

@@ -1,6 +1,6 @@
 import numpy as np
-from prp_model.task_generator import generate_task_patterns
-from prp_model.multitask_generator import generate_multitask_patterns
+from prp.task_generator import generate_task_patterns
+from prp.multitask_generator import generate_multitask_patterns
 
 def train_with_optional_multitask(net,
                                    N_pathways=3,
