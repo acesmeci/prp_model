@@ -14,23 +14,40 @@ The model investigates how shared task representations, conflict, and control po
 ## 📁 Project Structure
 
 PRP_Model/
-├── prp/ # Core model modules
-│ ├── task_network.py # Feedforward network architecture
-│ ├── nn_wrapper.py # Training + integration interface
-│ ├── lca.py # LCA decision dynamics
-│ ├── task_generator.py # Single-task pattern generation (A–E)
-│ ├── multitask_generator.py # Valid dual-task combinations
-│ ├── prp_simulator.py # PRP trial logic and sweep_soa
-│ ├── choose_onset_policy.py # Reward-rate-optimized Task 2 onset
-│ └── training_utils.py # High-level training wrappers
+
+|-- prp/ # Core model modules
+
+│ |-- task_network.py # Feedforward network architecture
+
+│ |-- nn_wrapper.py # Training + integration interface
+
+│ |-- lca.py # LCA decision dynamics
+
+│ |-- task_generator.py # Single-task pattern generation (A–E)
+
+│ |-- multitask_generator.py # Valid dual-task combinations
+
+│ |-- prp_simulator.py # PRP trial logic and sweep_soa
+
+│ |-- choose_onset_policy.py # Reward-rate-optimized Task 2 onset
+
+│ |-- training_utils.py # High-level training wrappers
+
 │
-├── scripts/ # CLI entry points
-│ └── train_model.py # Training pipeline with early stopping
+
+|-- scripts/ # CLI entry points
+
+│ |-- train_model.py # Training pipeline with early stopping
+
 │
-├── notebooks/ # Experimental notebooks
-├── output/ # Plots, saved models, etc.
-├── requirements.txt
-└── README.md
+
+|-- notebooks/ # Experimental notebooks
+
+|-- output/ # Plots, saved models, etc.
+
+|-- requirements.txt
+
+|-- README.md
 
 ---
 
