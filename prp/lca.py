@@ -1,5 +1,5 @@
 import numpy as np
-# Dont' change lambda = 0.4, alpha = 0.2, beta = 0.2, noise_std = 0.2, t0 = 0.15
+# Don't change lambda = 0.4, alpha = 0.2, beta = 0.2, noise_std = 0.2, t0 = 0.15
 # These are parameter used in the paper
 def run_lca(input_series,
             relevant_output_indices,
