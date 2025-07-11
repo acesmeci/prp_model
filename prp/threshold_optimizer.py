@@ -2,7 +2,7 @@ import numpy as np
 from prp.lca import run_lca_avg
 
 def optimize_threshold(input_series, relevant_output_indices, correct_response_idx,
-                       thresholds=np.arange(0.5, 2.0, 0.05),
+                       thresholds=np.arange(1.0, 2.5, 0.05),
                        ITI=0.5, n_repeats=100):
     """
     Finds the threshold z that maximizes reward rate: acc / (ITI + RT)
