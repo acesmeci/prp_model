@@ -1,10 +1,6 @@
 import numpy as np
 from prp.lca import run_lca, run_lca_avg
-from prp.choose_onset_policy import choose_onset_policy
-from prp.threshold_optimizer import (
-    optimize_lca_threshold,
-    optimize_reward_rate_threshold
-)
+from prp.threshold_utils import optimize_lca_threshold, choose_onset_policy, optimize_reward_rate_threshold
 
 
 def run_prp_trial(task_net, input_a, input_b, task_a, task_b,
