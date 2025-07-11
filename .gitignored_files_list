@@ -1,0 +1,5 @@
+Would remove .venv/
+Would remove output/
+Would remove prp/__pycache__/
+Would remove todo.md
+Would remove troubleshooting_log.md

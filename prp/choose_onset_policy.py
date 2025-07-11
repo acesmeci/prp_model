@@ -1,19 +1,33 @@
-from prp.lca import run_lca_avg  
 import numpy as np
+from prp.lca import run_lca_avg  
+from prp.threshold_optimizer import optimize_threshold  # ✅ NEW
 
 def choose_onset_policy(task_net, input_a, input_b, task_a, task_b,
                         max_onset_delay=15, soa=3,
-                        threshold=1.0, n_repeats=20, #increase +20
+                        n_repeats=20,
                         tau_net=0.2, tau_task=0.2, persistence=0.5,
                         ITI=0.5):
     """
     Searches for Task 2 onset that maximizes joint reward rate.
-
+    
     Returns:
         optimal_onset (int): time step to start Task 2
     """
     best_rr = -np.inf
     best_onset = 0
+    N_pathways = 3
+    N_features = 3
+
+    # Determine output indices
+    task_matrix_b = task_b.reshape(N_pathways, N_pathways).T
+    in_b, out_b = np.argwhere(task_matrix_b == 1)[0]
+    output_b = list(range(out_b * N_features, (out_b + 1) * N_features))
+    correct_b = np.argmax(input_b[in_b * N_features : (in_b + 1) * N_features])
+
+    task_matrix_a = task_a.reshape(N_pathways, N_pathways).T
+    in_a, out_a = np.argwhere(task_matrix_a == 1)[0]
+    output_a = list(range(out_a * N_features, (out_a + 1) * N_features))
+    correct_a = np.argmax(input_a[in_a * N_features : (in_a + 1) * N_features])
 
     for delay in range(soa, max_onset_delay + 1):
         input_series = []
@@ -38,23 +52,16 @@ def choose_onset_policy(task_net, input_a, input_b, task_a, task_b,
             tau_net=tau_net, tau_task=tau_task, persistence=persistence
         )
 
-        # Determine response outputs
-        N_pathways = 3
-        N_features = 3
+        # === Optimize thresholds per task ===
+        z_a = optimize_threshold(output_series, output_a, correct_response_idx=correct_a, ITI=ITI, n_repeats=n_repeats)
+        z_b = optimize_threshold(output_series[delay:], output_b, correct_response_idx=correct_b, ITI=ITI, n_repeats=n_repeats)
 
-        # Task A (Task 2)
-        task_matrix_b = task_b.reshape(N_pathways, N_pathways).T
-        in_b, out_b = np.argwhere(task_matrix_b == 1)[0]
-        output_b = list(range(out_b * N_features, (out_b + 1) * N_features))
-        rt_b, choice_b = run_lca_avg(output_series[delay:], output_b, threshold=threshold, n_repeats=n_repeats)
-        acc_b = int(choice_b == np.argmax(input_b[in_b * N_features:(in_b + 1) * N_features])) if choice_b is not None else 0
+        # === Evaluate performance ===
+        rt_a, choice_a = run_lca_avg(output_series, output_a, threshold=z_a, n_repeats=n_repeats)
+        acc_a = int(choice_a == correct_a) if choice_a is not None else 0
 
-        # Task B (Task 1)
-        task_matrix_a = task_a.reshape(N_pathways, N_pathways).T
-        in_a, out_a = np.argwhere(task_matrix_a == 1)[0]
-        output_a = list(range(out_a * N_features, (out_a + 1) * N_features))
-        rt_a, choice_a = run_lca_avg(output_series, output_a, threshold=threshold, n_repeats=n_repeats)
-        acc_a = int(choice_a == np.argmax(input_a[in_a * N_features:(in_a + 1) * N_features])) if choice_a is not None else 0
+        rt_b, choice_b = run_lca_avg(output_series[delay:], output_b, threshold=z_b, n_repeats=n_repeats)
+        acc_b = int(choice_b == correct_b) if choice_b is not None else 0
 
         if rt_a is None or rt_b is None:
             continue
