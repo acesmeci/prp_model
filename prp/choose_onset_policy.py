@@ -1,6 +1,6 @@
 import numpy as np
 from prp.lca import run_lca_avg  
-from prp.threshold_optimizer import optimize_threshold  # ✅ NEW
+from prp.threshold_optimizer import optimize_lca_threshold  # ✅ renamed import
 
 def choose_onset_policy(task_net, input_a, input_b, task_a, task_b,
                         max_onset_delay=15, soa=3,
@@ -53,8 +53,8 @@ def choose_onset_policy(task_net, input_a, input_b, task_a, task_b,
         )
 
         # === Optimize thresholds per task ===
-        z_a = optimize_threshold(output_series, output_a, correct_response_idx=correct_a, ITI=ITI, n_repeats=n_repeats)
-        z_b = optimize_threshold(output_series[delay:], output_b, correct_response_idx=correct_b, ITI=ITI, n_repeats=n_repeats)
+        z_a = optimize_lca_threshold(output_series, output_a, correct_response_idx=correct_a, ITI=ITI, n_repeats=n_repeats)
+        z_b = optimize_lca_threshold(output_series[delay:], output_b, correct_response_idx=correct_b, ITI=ITI, n_repeats=n_repeats)
 
         # === Evaluate performance ===
         rt_a, choice_a = run_lca_avg(output_series, output_a, threshold=z_a, n_repeats=n_repeats)

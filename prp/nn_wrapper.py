@@ -35,7 +35,7 @@ class TaskNetworkWrapper:
         self.accuracy_log = []
 
     def train_online(self, stim_inputs, task_inputs, targets,
-                 max_epochs=6000, stop_loss=0.001, print_every=10):
+                 max_epochs=8000, stop_loss=0.001, print_every=10):
         """
         Trains the network until MSE drops below `stop_loss`, or until `max_epochs`.
 
