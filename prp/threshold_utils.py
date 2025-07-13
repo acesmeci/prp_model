@@ -2,8 +2,9 @@ import numpy as np
 from prp.lca import run_lca_avg
 
 def optimize_lca_threshold(input_series, relevant_output_indices, correct_response_idx,
-                           thresholds=np.arange(1.0, 2.5, 0.05),
-                           ITI=0.5, n_repeats=100):
+                           thresholds=np.arange(0.0, 1.6, 0.1),
+                           ITI=4.0, # Paper: 0.5, MATLAB: 4.0
+                           n_repeats=100):
     """
     Finds LCA threshold z that maximizes reward rate: acc / (ITI + RT)
     For use inside a run_prp_trial() after full integration.
@@ -36,7 +37,7 @@ def choose_onset_policy(task_net, input_a, input_b, task_a, task_b,
                         max_onset_delay=15, soa=3,
                         n_repeats=20,
                         tau_net=0.2, tau_task=0.2, persistence=0.5,
-                        ITI=0.5):
+                        ITI=4.0):
     """
     Searches for Task 2 onset that maximizes joint reward rate.
     
@@ -108,9 +109,9 @@ def choose_onset_policy(task_net, input_a, input_b, task_a, task_b,
 
 def optimize_reward_rate_threshold(net, input_a, input_b, task_a, task_b,
                                    soa, max_timesteps=100,
-                                   thresholds=np.arange(1.0, 2.5, 0.05),
+                                   thresholds=np.arange(0.0, 1.6, 0.1),
                                    tau_net=0.2, tau_task=0.2, persistence=0.5,
-                                   ITI=0.5):
+                                   ITI=4.0):
     """
     Runs a simulated PRP trial and finds the threshold z that maximizes reward rate
     for Task A (the first task). Used in sweep_soa(), BEFORE running full trials.
