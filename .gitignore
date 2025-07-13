@@ -11,5 +11,10 @@ output/
 .venv/
 __pycache__/
 
+# Ignore logging notes
 todo.md
 troubleshooting_log.md
+
+# Ignore VS Code Git bookkeeping files
+.gitignored_files_list
+.gituntracked_files_list
