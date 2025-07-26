@@ -1,11 +1,18 @@
+# Legacy threshold optimizers (currently unused, kept for fallback/debug):
+# - optimize_reward_rate_threshold
+# - optimize_lca_threshold
+
 import numpy as np
 from prp.lca import run_lca_avg
 from prp.lca import run_lca_dist
 
+DEFAULT_N_REPEATS = 25 # Default number of repeats for LCA simulations. Use 100 if you have access to a GPU.
+
+# Not used in the current implementation. Replaced by optimize_lca_threshold_dist.
 def optimize_lca_threshold(input_series, relevant_output_indices, correct_response_idx,
                            thresholds=np.arange(0.0, 1.6, 0.1),
                            ITI=4.0,
-                           n_repeats=100):
+                           n_repeats=DEFAULT_N_REPEATS):
     """
     Finds LCA threshold z that maximizes reward rate: acc / (ITI + RT)
     Based on full distribution over n_repeats using run_lca_dist().
@@ -32,7 +39,7 @@ def optimize_lca_threshold_dist(
     correct_response_idx=None,
     thresholds=np.arange(0.0, 1.6, 0.1),
     ITI=0.5, # Paper: 0.5, MATLAB: 4.0
-    n_repeats=100,
+    n_repeats=DEFAULT_N_REPEATS,
     dt=0.01,
     tau=0.1,
     lambda_=0.4,
@@ -63,7 +70,7 @@ def optimize_lca_threshold_dist(
         input_series=input_series,
         relevant_output_indices=relevant_output_indices,
         thresholds=thresholds,
-        n_repeats=n_repeats,
+        n_repeats=DEFAULT_N_REPEATS,
         dt=dt,
         tau=tau,
         lambda_=lambda_,
@@ -92,7 +99,7 @@ def optimize_lca_threshold_dist(
 # Can add verbose if needed
 def choose_onset_policy(task_net, input_a, input_b, task_a, task_b,
                         max_onset_delay=15, soa=3,
-                        n_repeats=20,
+                        n_repeats=DEFAULT_N_REPEATS, # it was 20 before
                         tau_net=0.2, tau_task=0.2, persistence=0.5,
                         ITI=0.5):
     """
@@ -170,7 +177,8 @@ def optimize_reward_rate_threshold(net, input_a, input_b, task_a, task_b,
                                    soa, max_timesteps=100,
                                    thresholds=np.arange(0.0, 1.6, 0.1),
                                    tau_net=0.2, tau_task=0.2, persistence=0.5,
-                                   ITI=0.5):
+                                   ITI=0.5,
+                                   n_repeats=DEFAULT_N_REPEATS):
     """
     Runs a simulated PRP trial and finds the threshold z that maximizes reward rate
     for Task A (the first task). Used in sweep_soa(), BEFORE running full trials.
@@ -229,7 +237,8 @@ def optimize_reward_rate_threshold(net, input_a, input_b, task_a, task_b,
         relevant_output_indices=output_idxs,
         correct_response_idx=correct_idx,
         thresholds=thresholds,
-        ITI=ITI
+        ITI=ITI,
+        n_repeats=n_repeats,
     )
 
     return best_z

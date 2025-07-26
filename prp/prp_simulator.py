@@ -3,11 +3,13 @@ from prp.lca import run_lca, run_lca_avg
 from prp.threshold_utils import (optimize_lca_threshold, choose_onset_policy, 
                                  optimize_reward_rate_threshold, optimize_lca_threshold_dist,)
 
+DEFAULT_N_REPEATS = 25  # Default number of repeats for LCA simulations. Use 100 if you have access to a GPU.
+
 def run_prp_trial(task_net, input_a, input_b, task_a, task_b,
                   soa, max_timesteps=100,
                   tau_net=0.2, tau_task=0.2, persistence=0.5,
                   thresholds=np.arange(0.0, 1.6, 0.1),
-                  ITI=4.0, n_repeats=100):
+                  ITI=4.0, n_repeats=DEFAULT_N_REPEATS):
     """
     Continuous PRP trial: Task A starts at t=0, Task B starts at t=onset_b (≥ SOA).
     Task A onset is optimized for reward rate. Threshold is optimized per task.
@@ -93,6 +95,7 @@ def sweep_soa(task_net,
               tau_net=0.2,
               tau_task=0.2,
               persistence=0.0,
+              n_repeats=DEFAULT_N_REPEATS,
               verbose=False):
     """
     Runs PRP simulation across SOAs using reward-rate-optimized thresholds.
@@ -125,7 +128,8 @@ def sweep_soa(task_net,
                 max_timesteps=max_timesteps,
                 tau_net=tau_net,
                 tau_task=tau_task,
-                persistence=persistence
+                persistence=persistence,
+                n_repeats=n_repeats
             )
 
             if rt_a is not None:
