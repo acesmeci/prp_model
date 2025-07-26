@@ -4,32 +4,22 @@ from prp.lca import run_lca_dist
 
 def optimize_lca_threshold(input_series, relevant_output_indices, correct_response_idx,
                            thresholds=np.arange(0.0, 1.6, 0.1),
-                           ITI=4.0, # Paper: 0.5, MATLAB: 4.0
+                           ITI=4.0,
                            n_repeats=100):
     """
     Finds LCA threshold z that maximizes reward rate: acc / (ITI + RT)
-    For use inside a run_prp_trial() after full integration.
+    Based on full distribution over n_repeats using run_lca_dist().
     """
-    best_rr = -np.inf
-    best_threshold = None
+    results = run_lca_dist(
+        input_series=input_series,
+        relevant_output_indices=relevant_output_indices,
+        thresholds=thresholds,
+        n_repeats=n_repeats
+    )
 
-    for z in thresholds:
-        rt, choice = run_lca_avg(
-            input_series=input_series,
-            relevant_output_indices=relevant_output_indices,
-            threshold=z,
-            n_repeats=n_repeats
-        )
-
-        if rt is None:
-            continue
-
-        acc = int(choice == correct_response_idx)
-        rr = acc / (ITI + rt)
-
-        if rr > best_rr:
-            best_rr = rr
-            best_threshold = z
+    reward_rates = results['reward_rates']
+    best_idx = np.argmax(reward_rates)
+    best_threshold = results['thresholds'][best_idx]
 
     return best_threshold
 
