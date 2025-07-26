@@ -3,7 +3,7 @@ from prp.lca import run_lca, run_lca_avg
 from prp.threshold_utils import (optimize_lca_threshold, choose_onset_policy, 
                                  optimize_reward_rate_threshold, optimize_lca_threshold_dist,)
 
-DEFAULT_N_REPEATS = 25  # Default number of repeats for LCA simulations. Use 100 if you have access to a GPU.
+DEFAULT_N_REPEATS = 100  # Default number of repeats for LCA simulations. Use 100 if you have access to a GPU.
 
 def run_prp_trial(task_net, input_a, input_b, task_a, task_b,
                   soa, max_timesteps=100,

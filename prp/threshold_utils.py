@@ -6,7 +6,7 @@ import numpy as np
 from prp.lca import run_lca_avg
 from prp.lca import run_lca_dist
 
-DEFAULT_N_REPEATS = 25 # Default number of repeats for LCA simulations. Use 100 if you have access to a GPU.
+DEFAULT_N_REPEATS = 100 # Default number of repeats for LCA simulations. Use 100 if you have access to a GPU.
 
 # Not used in the current implementation. Replaced by optimize_lca_threshold_dist.
 def optimize_lca_threshold(input_series, relevant_output_indices, correct_response_idx,
