@@ -9,7 +9,7 @@ def run_lca(input_series,
             alpha=0.2, # 0.2
             beta=0.2, # 0.2
             noise_std=0.1, # 0.2 in paper, 0.1 in MATLAB
-            threshold=1.0, # Figure out threshold based on the paper
+            threshold=1.0, # Decided by reward maximization (optimize_lca_threshold)
             t0=0.15 # 0.15
            ):
     """
