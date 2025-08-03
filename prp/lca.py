@@ -35,7 +35,8 @@ def run_lca(input_series,
     n_units = len(relevant_output_indices)
     x = np.zeros(n_units)  # accumulator activations
     trajectory = []
-
+    input_series = np.array(input_series)  # convert to numpy array if not already
+    
     for t in range(min(len(input_series), max_timesteps)):
         inp = input_series[t][relevant_output_indices]
         noise = np.random.randn(n_units) * noise_std
