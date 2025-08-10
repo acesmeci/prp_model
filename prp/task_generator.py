@@ -105,36 +105,48 @@ def generate_task_patterns(
 
 # Generate fixed task patterns
 
+# prp/task_generator.py
 def generate_fixed_task_set(
-    N_pathways=3,
-    N_features=3,
-    samples_per_task=100, # Paper (Sim 2 & 3) used 100 samples per task
-    sd_scale=0.25,
-    seed=None
+    N_pathways: int = 3,
+    N_features: int = 3,
+    samples_per_task: int = 100,
+    sd_scale: float = 0.25,
+    seed: int = None
 ):
     """
-    Generate a fixed set of tasks (A–E) with known structural/functional dependencies.
+    Generate a fixed set of 5 tasks (A–E) with structural/functional dependencies.
 
-    Task mapping:
-        - Task A: S0 -> R0 (structurally independent)
-        - Task B: S1 -> R1 (structurally independent)
-        - Task C: S2 -> R2 (structurally independent)
-        - Task D: S0 -> R1 (shares stimulus with A, output with B)
-        - Task E: S1 -> R0 (shares stimulus with B, output with A)
-    
+    Task definitions (Fig.13, Musslick et al.):
+      A: S0 -> R0
+      B: S1 -> R1
+      C: S2 -> R2
+      D: S0 -> R1 (shares S with A, R with B)
+      E: S1 -> R0 (shares S with B, R with A)
+
     Returns:
-        - input_sgl: noisy stimuli
-        - tasks_sgl: one-hot task vectors
-        - train_sgl: correct output vectors
-        - meta: dictionary with input/output masks and task/stim indices
+      input_sgl      : (5*samples_per_task, N_pathways*N_features) noisy inputs
+      tasks_sgl      : (5*samples_per_task, T) one-hot task cues (T = N_pathways^2)
+      train_sgl      : (5*samples_per_task, N_pathways*N_features) one-hot correct outputs
+      meta           : {
+        "task_names"           : ['A','B','C','D','E'],
+        "structurally_dep"     : [('A','D'), ('A','E'), ('B','D'), ('B','E')],
+        "functionally_dep"     : [('A','B')],   # via D/E
+        "independent_pairs"    : [('A','C'), ('B','C')],
+        "input_masks"          : {...},        # raw binary masks before noise
+        "output_masks"         : {...}, 
+        "task_indices"         : [...],        # length = 5*samples_per_task
+        "stimulus_indices"     : [...]
+      }
     """
     if seed is not None:
         np.random.seed(seed)
 
+    # dimensions
     I = N_pathways * N_features
     T = N_pathways ** 2
-    R = I  # output size = input size (3x3)
+    R = I
 
+    # define mapping
     task_map = {
         'A': (0, 0),
         'B': (1, 1),
@@ -142,58 +154,80 @@ def generate_fixed_task_set(
         'D': (0, 1),
         'E': (1, 0)
     }
+    task_names = list(task_map.keys())
 
-    task_ids = list(task_map.keys())
-    stim_mask_list = []
-    task_mask_list = []
-    train_mask_list = []
-    task_idx_list = []
-    stim_idx_list = []
+    # placeholders
+    input_masks  = {}
+    output_masks = {}
+    all_inputs   = []
+    all_tasks    = []
+    all_outputs  = []
+    task_indices = []
+    stim_indices = []
 
-    for idx, task_name in enumerate(task_ids):
-        in_dim, out_dim = task_map[task_name]
-        task_vector = np.zeros(T)
-        task_vector[in_dim * N_pathways + out_dim] = 1
+    # build each task block
+    for t_idx, name in enumerate(task_names):
+        in_dim, out_dim = task_map[name]
 
-        feature_combs = np.random.randint(0, N_features, size=(samples_per_task, N_pathways))
-        curr_input_mask = np.zeros((samples_per_task, I))
-        curr_output_mask = np.zeros((samples_per_task, R))
+        # one-hot task cue over T possible (in_dim * N_pathways + out_dim)
+        cue = np.zeros(T)
+        cue[in_dim * N_pathways + out_dim] = 1
 
-        for i, feat_idx in enumerate(feature_combs):
-            for d in range(N_pathways):
-                curr_input_mask[i, d * N_features + feat_idx[d]] = 1
+        # generate structural binary masks
+        X_bin = np.zeros((samples_per_task, I))
+        Y_bin = np.zeros((samples_per_task, R))
 
-            # Copy relevant input dim to output dim (task-defined mapping)
-            in_start = in_dim * N_features
-            out_start = out_dim * N_features
-            curr_output_mask[i, out_start:out_start + N_features] = curr_input_mask[i, in_start:in_start + N_features]
+        # random feature combinations to fill each pathway
+        feats = np.random.randint(0, N_features, size=(samples_per_task, N_pathways))
+        for i, fvec in enumerate(feats):
+            for p in range(N_pathways):
+                X_bin[i, p*N_features + fvec[p]] = 1
+            # copy from input dim to output dim
+            Y_bin[i, out_dim*N_features:(out_dim+1)*N_features] = \
+                X_bin[i, in_dim*N_features:(in_dim+1)*N_features]
 
-        stim_mask_list.append(curr_input_mask)
-        task_mask_list.append(np.tile(task_vector, (samples_per_task, 1)))
-        train_mask_list.append(curr_output_mask)
-        task_idx_list.append(np.full((samples_per_task,), task_name))
-        stim_idx_list.append(np.arange(samples_per_task))
+        # store the raw masks
+        input_masks[name]  = X_bin.copy()
+        output_masks[name] = Y_bin.copy()
 
-    input_sgl_mask = np.vstack(stim_mask_list)
-    tasks_sgl_mask = np.vstack(task_mask_list)
-    train_sgl_mask = np.vstack(train_mask_list)
-    tasks_idx_sgl = np.concatenate(task_idx_list)
-    stim_idx_sgl = np.concatenate(stim_idx_list)
+        # tile cue & accumulate
+        all_inputs.append(X_bin)
+        all_tasks.append(np.tile(cue, (samples_per_task, 1)))
+        all_outputs.append(Y_bin)
 
-    # Add noise to stimuli
-    input_sgl = np.zeros_like(input_sgl_mask)
-    sd_matrix = np.random.rand(N_features, N_features) * sd_scale
+        task_indices.extend([name]*samples_per_task)
+        stim_indices.extend(list(range(samples_per_task)))
 
-    for row_idx in range(input_sgl.shape[0]):
-        for dim in range(N_pathways):
-            col_start = dim * N_features
-            col_end = (dim + 1) * N_features
-            mu = input_sgl_mask[row_idx, col_start:col_end]
-            active_feat = np.argmax(mu)
-            input_sgl[row_idx, col_start:col_end] = np.random.multivariate_normal(mu, np.diag(sd_matrix[active_feat]))
+    # stack into arrays
+    input_sgl  = np.vstack(all_inputs)
+    tasks_sgl  = np.vstack(all_tasks)
+    train_sgl  = np.vstack(all_outputs)
 
-    return input_sgl, tasks_sgl_mask, train_sgl_mask, {
-        "input_sgl_mask": input_sgl_mask,
-        "tasks_idx": tasks_idx_sgl,
-        "stim_idx": stim_idx_sgl
+    # add Gaussian noise to inputs
+    sd_mat = np.random.rand(N_features, N_features) * sd_scale
+    noisy_inputs = np.zeros_like(input_sgl)
+    for i in range(len(input_sgl)):
+        for p in range(N_pathways):
+            block = input_sgl[i, p*N_features:(p+1)*N_features]
+            feat = block.argmax()
+            cov  = np.diag(sd_mat[feat])
+            noisy_inputs[i, p*N_features:(p+1)*N_features] = \
+                np.random.multivariate_normal(block, cov)
+
+    # dependencies for easy selection
+    structurally_dep = [('A','D'), ('A','E'), ('B','D'), ('B','E')]
+    functionally_dep = [('A','B')]     # tasks that only depend via D/E
+    independent_pairs = [('A','C'), ('B','C')]
+
+    meta = {
+        "task_names": task_names,
+        "structurally_dep": structurally_dep,
+        "functionally_dep": functionally_dep,
+        "independent_pairs": independent_pairs,
+        "input_masks": input_masks,
+        "output_masks": output_masks,
+        "task_indices": np.array(task_indices),
+        "stimulus_indices": np.array(stim_indices),
     }
+
+    return noisy_inputs, tasks_sgl, train_sgl, meta
