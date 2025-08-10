@@ -17,7 +17,7 @@ def run_prp_trial(
     thresholds: np.ndarray = np.arange(0.0, 1.6, 0.1),
     ITI: float = 4.0,
     n_repeats: int = DEFAULT_N_REPEATS,
-    z_b_fixed= None
+    z_b_fixed: float = None
 ):
     """
     Runs a single PRP trial with Task A at t=0 and Task B at t=soa (fixed).
@@ -95,13 +95,18 @@ def run_prp_trial(
     # 5) LCA for Task B (only tail after onset)
     idxs_b, corr_b = _decode(task_b, input_b)
     tail = output_np[onset_b:]
-    z_b, _ = optimize_lca_threshold_dist(
-        tail, idxs_b,
-        correct_response_idx=corr_b,
-        thresholds=thresholds,
-        ITI=ITI,
-        n_repeats=n_repeats
-    )
+    # pick z_b_fixed if given, else optimize
+    if z_b_fixed is None:
+        z_b, _ = optimize_lca_threshold_dist(
+            tail, idxs_b,
+            correct_response_idx=corr_b,
+            thresholds=thresholds,
+            ITI=ITI,
+            n_repeats=n_repeats
+        )
+    else:
+        z_b = z_b_fixed
+
     rt_b, choice_b = run_lca_avg(
         tail, idxs_b,
         threshold=z_b,
@@ -123,7 +128,8 @@ def sweep_soa(
     max_timesteps: int = 50,
     persistence: float = 0.5,
     n_repeats: int = DEFAULT_N_REPEATS,
-    verbose: bool = False
+    verbose: bool = False,
+    z_b_fixed: float = None
 ):
     """
     Runs PRP simulations across a list of SOAs.
@@ -150,7 +156,8 @@ def sweep_soa(
                 soa=soa,
                 max_timesteps=max_timesteps,
                 persistence=persistence,
-                n_repeats=n_repeats
+                n_repeats=n_repeats,
+                z_b_fixed=z_b_fixed
             )
 
             # collect only valid, non-None RTs

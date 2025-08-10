@@ -1,9 +1,9 @@
 import numpy as np
 # Don't change lambda = 0.4, alpha = 0.2, beta = 0.2, noise_std = 0.2, t0 = 0.15
-# These are parameter used in the paper
+# These are the parameters used in the paper
 def run_lca(input_series,
             relevant_output_indices,
-            dt=0.1, # 0.1 in MATLAB
+            dt=0.05, # 0.1 in MATLAB
             max_timesteps=100,
             lambda_=0.4, # 0.4 
             alpha=0.2, # 0.2
