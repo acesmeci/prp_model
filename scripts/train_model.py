@@ -13,7 +13,8 @@ def main():
     samples_per_task= 100   # per task A–E
     hidden_dim      = 100
     learning_rate   = 0.3
-    stop_loss       = 1e-3
+    # The stop_loss value has been relaxed from 1e-3 to 0.005 for early stopping
+    stop_loss       = 0.005
     max_epochs      = 8000
     device          = "cpu"  # or "cuda"
 
@@ -46,12 +47,12 @@ def main():
         targets     = tgt_t,
         max_epochs  = max_epochs,
         stop_loss   = stop_loss,
-        print_every = 50
+        print_every = 20
     )
 
     # 4) Save model weights
     os.makedirs("output", exist_ok=True)
-    save_path = os.path.join("output", "trained_model.pth")
+    save_path = os.path.join("output", "trained_model_005.pth")
     torch.save(wrapper.model.state_dict(), save_path)
     print(f"✅ Model saved to {save_path}")
 

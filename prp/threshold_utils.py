@@ -11,7 +11,7 @@ DEFAULT_N_REPEATS = 100 # Default number of repeats for LCA simulations. Use 100
 # Not used in the current implementation. Replaced by optimize_lca_threshold_dist.
 def optimize_lca_threshold(input_series, relevant_output_indices, correct_response_idx,
                            thresholds=np.arange(0.0, 1.6, 0.1),
-                           ITI=4.0,
+                           ITI=0.5,
                            n_repeats=DEFAULT_N_REPEATS):
     """
     Finds LCA threshold z that maximizes reward rate: acc / (ITI + RT)

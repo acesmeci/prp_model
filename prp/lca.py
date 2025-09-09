@@ -87,18 +87,19 @@ def run_lca_avg(input_series, relevant_output_indices,
 
 
 # MATLAB implementation of runLCA with RR optimization (NNmodel.m line 1124-1715)
+# You can find parameters in loadLCASettings.m. They are faithful to MATLAB implementation.
 def run_lca_dist(
     input_series,
     relevant_output_indices,
-    thresholds=np.arange(0.0, 1.6, 0.1),
-    n_repeats=100,
-    dt=0.01,
-    tau=0.1,
-    lambda_=0.4,
-    alpha=0.2,
-    beta=0.2,
-    noise_std=0.1,
-    t0=0.15
+    thresholds=np.arange(0.0, 1.6, 0.1), # (0.0, 1.6, 0.1) 
+    n_repeats=100, # 100
+    dt=0.1, # 0.1
+    tau=0.1, # dt_tau = 0.1
+    lambda_=0.4, # 0.4
+    alpha=0.2, # 0.2
+    beta=0.2, # 0.2
+    noise_std=0.1, # 0.1
+    t0=0.15 # 0.15
 ):
     """
     Simulates full LCA dynamics for all thresholds.
