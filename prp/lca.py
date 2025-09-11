@@ -87,18 +87,20 @@ def run_lca_avg(input_series, relevant_output_indices,
 
 
 # MATLAB implementation of runLCA with RR optimization (NNmodel.m line 1124-1715)
+# This function doesn't use ITI in the reward rate calculation. Was this the case in the MATLAB code?
 def run_lca_dist(
     input_series,
     relevant_output_indices,
     thresholds=np.arange(0.0, 1.6, 0.1),
     n_repeats=100,
-    dt=0.01,
+    dt=0.01, # dt_default = 0.01 in MATLAB, should be 0.1 though?
     tau=0.1,
     lambda_=0.4,
     alpha=0.2,
     beta=0.2,
-    noise_std=0.1,
-    t0=0.15
+    noise_std=0.1, # 0.2 in paper, 0.1 in MATLAB
+    t0=0.15,
+    ITI = 0.5,
 ):
     """
     Simulates full LCA dynamics for all thresholds.
@@ -167,7 +169,7 @@ def run_lca_dist(
     # Compute stats
     accs = np.nanmean(all_accs, axis=1)
     rts = np.nanmean(all_rts, axis=1)
-    reward_rates = accs / (rts + 1e-5)  # prevent div by 0
+    reward_rates = accs / (ITI + rts)  # prevent div by 0
 
     return {
         'thresholds': thresholds,

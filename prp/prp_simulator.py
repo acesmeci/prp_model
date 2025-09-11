@@ -3,7 +3,7 @@
 import numpy as np
 import torch
 from prp.lca import run_lca_avg
-from prp.threshold_utils import optimize_lca_threshold_dist
+from prp.threshold_utils import optimize_lca_threshold_dist, choose_onset_policy
 
 DEFAULT_N_REPEATS = 100  # number of repeats for LCA simulations
 
@@ -12,12 +12,13 @@ def run_prp_trial(
     input_a, input_b,
     task_a, task_b,
     soa: int,
-    max_timesteps: int = 100,
+    max_timesteps: int = 100, # Why is this 100 here and 50 in sweep_soa?
     persistence: float = 0.5,
     thresholds: np.ndarray = np.arange(0.0, 1.6, 0.1),
-    ITI: float = 4.0,
+    ITI: float = 0.5, # 0.5 --> 4.0
     n_repeats: int = DEFAULT_N_REPEATS,
-    z_b_fixed: float = None
+    z_b_fixed: float = None,
+    dt_lca = 0.1, # to fix unit mismatch of rt_b and onset_b
 ):
     """
     Runs a single PRP trial with Task A at t=0 and Task B at t=soa (fixed).
@@ -114,7 +115,7 @@ def run_prp_trial(
     )
     # bring RT_B back to absolute time
     if rt_b is not None:
-        rt_b = rt_b + onset_b
+        rt_b = rt_b + onset_b * dt_lca
     acc_b = (choice_b == corr_b) if rt_b is not None else False
 
     return rt_a, acc_a, rt_b, acc_b, output_np
@@ -129,7 +130,8 @@ def sweep_soa(
     persistence: float = 0.5,
     n_repeats: int = DEFAULT_N_REPEATS,
     verbose: bool = False,
-    z_b_fixed: float = None
+    z_b_fixed: float = None,
+    dt_lca = 0.1, # to fix unit mismatch of rt_b and onset_b, might be unnecessary here
 ):
     """
     Runs PRP simulations across a list of SOAs.
