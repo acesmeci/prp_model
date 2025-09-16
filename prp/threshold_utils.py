@@ -1,3 +1,20 @@
+"""
+Threshold utilities for the LCA readout layer.
+
+This module provides:
+- A modern reward-rate threshold optimizer that wraps `run_lca_dist` and
+  passes through all LCA parameters (`optimize_lca_threshold_dist`).
+- A PRP onset policy helper (`choose_onset_policy`) that evaluates a small
+  window of candidate Task-2 onsets using two-pass integration.
+- Two legacy helpers retained for reference/debugging.
+
+Conventions:
+- Task cues are **row-major** one-hots (index = in_dim * N_pathways + out_dim).
+- Reward-rate = accuracy / (ITI + RT). In our `run_lca_dist`, trials with
+  no decision yield RT=NaN and are treated as RR=0 so extreme thresholds
+  cannot win spuriously.
+"""
+
 # Legacy threshold optimizers (currently unused, kept for fallback/debug):
 # - optimize_reward_rate_threshold
 # - optimize_lca_threshold
@@ -7,7 +24,8 @@ from prp.lca import run_lca_avg
 from prp.lca import run_lca_dist
 import torch
 
-DEFAULT_N_REPEATS = 100 # Default number of repeats for LCA simulations. Use 100 if you have access to a GPU.
+DEFAULT_N_REPEATS = 100  # Default number of repeats for LCA simulations. Use 100 if you have access to a GPU.
+
 
 # Not used in the current implementation. Replaced by optimize_lca_threshold_dist.
 def optimize_lca_threshold(input_series, relevant_output_indices, correct_response_idx,
@@ -15,8 +33,33 @@ def optimize_lca_threshold(input_series, relevant_output_indices, correct_respon
                            ITI=0.5,
                            n_repeats=DEFAULT_N_REPEATS):
     """
-    Finds LCA threshold z that maximizes reward rate: acc / (ITI + RT)
-    Based on full distribution over n_repeats using run_lca_dist().
+    [LEGACY] Maximize reward-rate over a grid of thresholds using `run_lca_dist`.
+
+    Parameters
+    ----------
+    input_series : np.ndarray
+        Output time series, shape [T, D_out].
+    relevant_output_indices : Sequence[int]
+        Indices of the response units for this task (within D_out).
+    correct_response_idx : int
+        Index of the correct feature **within** the relevant outputs.
+        (Ignored by the legacy implementation of `run_lca_dist`.)
+    thresholds : np.ndarray
+        Candidate thresholds (z) to evaluate.
+    ITI : float
+        Inter-trial interval (not propagated in this legacy helper).
+    n_repeats : int
+        Number of LCA simulations per threshold.
+
+    Returns
+    -------
+    float
+        Threshold z that maximizes reward-rate on this series.
+
+    Notes
+    -----
+    Superseded by `optimize_lca_threshold_dist`, which forwards all LCA
+    parameters and ITI properly.
     """
     results = run_lca_dist(
         input_series=input_series,
@@ -51,8 +94,38 @@ def optimize_lca_threshold_dist(
     verbose=False,
 ):
     """
-    Sweep thresholds; choose the one with the highest reward-rate.
-    Returns (best_threshold, results_dict).
+    Sweep thresholds with full LCA dynamics and choose the z with max reward-rate.
+
+    Parameters
+    ----------
+    input_series : np.ndarray
+        Output time series, shape [T, D_out].
+    relevant_output_indices : Sequence[int]
+        Indices of the response units for the current task (within D_out).
+    correct_response_idx : int | None
+        Correct feature index **within** the relevant outputs. If None,
+        `run_lca_dist` will infer a label (fallback).
+    thresholds : np.ndarray
+        Threshold grid to test.
+    ITI : float
+        Inter-trial interval used in reward-rate.
+    n_repeats : int
+        Number of LCA simulations per threshold.
+    dt, tau, lambda_, alpha, beta, noise_std, t0 : float
+        LCA parameters (forwarded to `run_lca_dist`).
+    verbose : bool
+        If True, print per-threshold Acc/RT/RR and the selected z.
+
+    Returns
+    -------
+    (best_threshold, results) : (float, dict)
+        `results` is the dictionary returned by `run_lca_dist` and includes:
+        thresholds, reward_rates, accuracies, rts, all_rts, all_accs.
+
+    Notes
+    -----
+    Our `run_lca_dist` treats “no decision” trials as RR=0, preventing large z
+    values from being selected due to NaNs.
     """
     results = run_lca_dist(
         input_series=input_series,
@@ -65,7 +138,7 @@ def optimize_lca_threshold_dist(
     )
 
     rr = results["reward_rates"]
-    best_idx = int(np.argmax(rr))             # safe: RR invalids were set to 0
+    best_idx = int(np.argmax(rr))  # safe: RR invalids were set to 0
     best_threshold = float(results["thresholds"][best_idx])
 
     if verbose:
@@ -77,9 +150,6 @@ def optimize_lca_threshold_dist(
     return best_threshold, results
 
 
-
-# Updated version of choose_onset_policy to use optimize_lca_threshold_dist
-# Can add verbose if needed
 def choose_onset_policy(
     task_net,
     input_a, input_b,
@@ -98,24 +168,65 @@ def choose_onset_policy(
     thresholds_policy: np.ndarray | None = None,  # coarse grid for policy search
 ):
     """
-    Returns best onset (int, in steps) that maximizes:
-        RR = (Acc_A * Acc_B) / (ITI + max(RT_A, RT_B_abs))
+    Reward-rate onset policy for Task-2.
 
-    Two-pass integration per candidate onset:
-      Pass1: A task unit ON (B from onset) -> get RT_A, gate time for A
-      Pass2: Turn OFF A's task unit after its decision -> evaluate B on the tail
+    Evaluates candidate onsets in [SOA, SOA + max_onset_delay] and returns the
+    one that maximizes:
+        RR = (Acc_A * Acc_B) / (ITI + max(RT_A, RT_B_abs)).
+
+    Two-pass evaluation per candidate onset:
+      Pass 1: Task-1 cue ON (Task-2 from onset) → get RT_A and gate time for Task-1.
+      Pass 2: Turn OFF Task-1 after its decision → evaluate Task-2 on the tail.
+
+    Parameters
+    ----------
+    task_net : TaskNetworkWrapper
+        Must expose .integrate(input_series, task_series, persistence).
+    input_a, input_b : np.ndarray
+        One-hot stimuli for Task-1/Task-2 (length = N_pathways * N_features).
+    task_a, task_b : np.ndarray
+        One-hot task cues in **row-major** indexing (length = N_pathways**2).
+    soa : int
+        Base onset (in LCA steps). Candidate onsets start here.
+    max_onset_delay : int
+        Search window size in steps (inclusive).
+    max_timesteps : int
+        Total steps per simulated trial.
+    persistence : float
+        Carry-over parameter p for the network integration.
+    ITI, dt_lca, t0 : float
+        Reward-rate / LCA timing parameters.
+    z_a_fixed, z_b_fixed : float | None
+        If provided, reuse these thresholds to speed up policy evaluation.
+    policy_n_repeats : int
+        LCA repeats to average per candidate onset.
+    thresholds_policy : np.ndarray | None
+        Coarse threshold grid for policy evaluation (default 0.1–0.6).
+
+    Returns
+    -------
+    int
+        Best onset (in steps) according to the policy.
+
+    Notes
+    -----
+    - This function is optional and is usually kept OFF in Sim Study 3 sweeps.
+    - Task decoding is **row-major** (no transpose) to stay consistent across modules.
     """
     if thresholds_policy is None:
-        thresholds_policy = np.linspace(0.1, 0.6, 6) # should be 0.1 -> 1.6 for faithfulness, but faster for policy search
+        # Coarse grid is enough for relative comparisons (faster).
+        thresholds_policy = np.linspace(0.1, 0.6, 6)  # full grid would be 0.1..1.6
 
     def _decode(task_vec, input_vec, N_pathways=3, N_features=3):
-        mat = task_vec.reshape(N_pathways, N_pathways) # removed .T here, check if correct
+        # ROW-MAJOR task cue → (relevant output indices, correct feature)
+        mat = task_vec.reshape(N_pathways, N_pathways)
         in_dim, out_dim = np.argwhere(mat == 1)[0]
         correct = np.argmax(input_vec[in_dim*N_features:(in_dim+1)*N_features])
         idxs = list(range(out_dim*N_features, (out_dim+1)*N_features))
         return idxs, correct
 
     def _integrate_once(onset_b: int, gate_after_a_steps: int | None):
+        # Build one trial with optional gating of Task-1 after its decision.
         inp_dim, task_dim = input_a.shape[0], task_a.shape[0]
         input_series, task_series = [], []
         for t in range(max_timesteps):
@@ -125,7 +236,7 @@ def choose_onset_policy(
             stim_t += input_a
             if t >= onset_b:
                 stim_t += input_b
-            # task units (control)
+            # control (task cues)
             if gate_after_a_steps is None or t < gate_after_a_steps:
                 task_t += task_a
             if t >= onset_b:
@@ -139,7 +250,7 @@ def choose_onset_policy(
                                     persistence=persistence)
         return np.stack([o.numpy() for o in out_th], axis=0)  # [T, D_out]
 
-    # decode once
+    # Decode once (row-major)
     idxs_a, corr_a = _decode(task_a, input_a)
     idxs_b, corr_b = _decode(task_b, input_b)
 
@@ -165,6 +276,7 @@ def choose_onset_policy(
         if rt_a is None:
             continue
         acc_a = 1.0 if choice_a == corr_a else 0.0
+        # Convert RT (sec) to step index for gating Task-1 off
         t_off_a = int(np.ceil(max(0.0, (rt_a - t0) / dt_lca)))
 
         # ---- Pass 2: gate A then evaluate B ----
@@ -188,7 +300,7 @@ def choose_onset_policy(
         if rt_b is None:
             continue
         acc_b = 1.0 if choice_b == corr_b else 0.0
-        rt_b_abs = rt_b + onset * dt_lca
+        rt_b_abs = rt_b + onset * dt_lca  # convert to absolute time
 
         rr = (acc_a * acc_b) / (ITI + max(rt_a, rt_b_abs))
         if rr > best_rr:
@@ -199,7 +311,6 @@ def choose_onset_policy(
 
 
 
-# Finds best Task A threshold *z* ahead of time to be used in sweep_soa()
 def optimize_reward_rate_threshold(net, input_a, input_b, task_a, task_b,
                                    soa, max_timesteps=100,
                                    thresholds=np.arange(0.0, 1.6, 0.1),
@@ -207,8 +318,24 @@ def optimize_reward_rate_threshold(net, input_a, input_b, task_a, task_b,
                                    ITI=0.5,
                                    n_repeats=DEFAULT_N_REPEATS):
     """
-    Runs a simulated PRP trial and finds the threshold z that maximizes reward rate
-    for Task A (the first task). Used in sweep_soa(), BEFORE running full trials.
+    [LEGACY] Find the best Task-1 threshold (z) by simulating a PRP trial once.
+
+    Parameters mirror older MATLAB code and an older wrapper API:
+    - Expects `net.integrate` to accept `tau_net`/`tau_task`.
+    - Uses a transpose when decoding the task cue (column-major assumption).
+    - Calls `optimize_lca_threshold_dist` with a keyword `output_series`.
+      (Kept for reference; not used in the current pipeline.)
+
+    Returns
+    -------
+    float
+        Best z for Task-1 according to reward-rate on that single synthetic trial.
+
+    Notes
+    -----
+    This function is **not** wired into the current PRP sweeps and may be
+    incompatible with the modern `TaskNetworkWrapper`. Retained only to aid
+    debugging/porting.
     """
     input_dim = input_a.shape[0]
     task_dim = task_a.shape[0]
@@ -250,7 +377,7 @@ def optimize_reward_rate_threshold(net, input_a, input_b, task_a, task_b,
         persistence=persistence
     )
 
-    # Target output for Task A (first)
+    # Target output for Task A (first) — legacy column-major decoding (uses .T)
     N_pathways = 3
     N_features = 3
     task_matrix = task_a.reshape(N_pathways, N_pathways).T
@@ -260,7 +387,7 @@ def optimize_reward_rate_threshold(net, input_a, input_b, task_a, task_b,
 
     # Use full LCA reward-rate scan
     best_z, _ = optimize_lca_threshold_dist(
-        output_series=output_series,
+        output_series=output_series,   # legacy keyword; kept as-is
         relevant_output_indices=output_idxs,
         correct_response_idx=correct_idx,
         thresholds=thresholds,

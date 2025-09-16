@@ -1,3 +1,24 @@
+# prp/task_generator.py
+# !!!Legacy now!!! Use training_set.py instead.
+"""
+Task/stimulus generator for the PRP simulations.
+
+This module creates single–task training/evaluation datasets for five canonical
+tasks over 3 input/output pathways with N_features per pathway. Each stimulus
+has exactly one active feature per input pathway (one-hot within the pathway).
+A task cue (one-hot over N_pathways^2 possible mappings) selects a mapping
+from one input pathway to one output pathway (e.g., A: in0→out0, D: in0→out1).
+
+Two entry points:
+- generate_task_patterns: generic generator (historical); supports arbitrary
+  task IDs but currently used as single-task builder.
+- generate_fixed_task_set: convenience wrapper that builds the five tasks
+  A–E used throughout the paper and these simulations, and returns metadata.
+
+All generators add small Gaussian noise to input features (per-pathway,
+diagonal covariance) to avoid degenerate, trivially separable data.
+"""
+
 import numpy as np
 
 def generate_task_patterns(
@@ -12,14 +33,59 @@ def generate_task_patterns(
     seed=None
 ):
     """
-    Generate training data for single-task and multitask PRP trials.
+    Build single-task examples for a user-specified subset of the N_pathways^2
+    possible tasks (input→output mappings).
 
-    Returns:
-        - input_sgl: Noisy stimuli (single task)
-        - tasks_sgl: One-hot task vectors
-        - train_sgl: Correct outputs
-        - meta: dict with clean versions, task/stim indices, and multitask set
+    Parameters
+    ----------
+    N_pathways : int
+        Number of input/output pathways (typically 3).
+    N_features : int
+        Number of discrete features per pathway (typically 3).
+    samples_per_task : int or None
+        If None, generate all combinations of features (N_features^N_pathways).
+        If int, sample that many random feature combinations per task.
+    sd_scale : float
+        Scales the diagonal Gaussian noise added to each pathway's feature
+        vector. A per-feature variance row is drawn uniformly in [0, sd_scale).
+    same_stimuli_across_tasks : bool
+        Reserved; not currently used. (If enabled, would reuse the same set
+        of stimuli across different task cues.)
+    relevant_tasks : list[int] or None
+        1-indexed IDs of tasks to include (MATLAB-style). Defaults to all tasks.
+    generate_multitasking_patterns : bool
+        Reserved; not currently used in this function.
+    zero_dimensions : bool
+        If True, drops the last feature of each pathway (for legacy cases with
+        a dummy feature).
+    seed : int or None
+        Seed for NumPy RNG (local to this function).
+
+    Returns
+    -------
+    input_sgl : (N, N_pathways*N_features) float32
+        Noisy input stimuli. Each pathway block has one dominant feature.
+    tasks_sgl : (N, N_pathways^2) float32
+        One-hot task cues (exactly one active unit specifies input→output).
+    train_sgl : (N, N_pathways*N_features) float32
+        One-hot targets. For task (i→o), the active feature on input pathway i
+        is copied to output pathway o.
+    meta : dict
+        {
+          "input_sgl_mask": binary (noise-free) inputs,
+          "tasks_idx": 1-indexed task IDs per row,
+          "stim_idx": per-task stimulus index per row,
+        }
+
+    Notes
+    -----
+    • Noise model: for each pathway p, we draw from N(μ, Σ_p) where μ is the
+      one-hot feature vector and Σ_p = diag(sd_row), with sd_row selected by the
+      active feature index (row of a random N_features×N_features matrix scaled
+      by sd_scale). This adds within-pathway jitter but keeps features local.
+    • Targets are exact functions of (input, task), independent of noise.
     """
+
     if seed is not None:
         np.random.seed(seed)
 
@@ -55,7 +121,7 @@ def generate_task_patterns(
                 curr_input_mask[i, d * N_features + feat_idx[d]] = 1
 
         # Convert task_id to matrix form to identify input-output mapping
-        curr_tasksM = task_vector.reshape(N_pathways, N_pathways).T
+        curr_tasksM = task_vector.reshape(N_pathways, N_pathways) # removed .T here, check if correct
         input_dim, output_dim = np.argwhere(curr_tasksM == 1)[0]  # only one active task
 
         for i in range(curr_input_mask.shape[0]):
@@ -114,30 +180,59 @@ def generate_fixed_task_set(
     seed: int = None
 ):
     """
-    Generate a fixed set of 5 tasks (A–E) with structural/functional dependencies.
+    Build the canonical five tasks (A–E) used in the paper:
 
-    Task definitions (Fig.13, Musslick et al.):
-      A: S0 -> R0
-      B: S1 -> R1
-      C: S2 -> R2
-      D: S0 -> R1 (shares S with A, R with B)
-      E: S1 -> R0 (shares S with B, R with A)
+        A: in0 → out0
+        B: in1 → out1
+        C: in2 → out2
+        D: in0 → out1   (shares input with A; output with B)
+        E: in1 → out0   (shares input with B; output with A)
 
-    Returns:
-      input_sgl      : (5*samples_per_task, N_pathways*N_features) noisy inputs
-      tasks_sgl      : (5*samples_per_task, T) one-hot task cues (T = N_pathways^2)
-      train_sgl      : (5*samples_per_task, N_pathways*N_features) one-hot correct outputs
-      meta           : {
-        "task_names"           : ['A','B','C','D','E'],
-        "structurally_dep"     : [('A','D'), ('A','E'), ('B','D'), ('B','E')],
-        "functionally_dep"     : [('A','B')],   # via D/E
-        "independent_pairs"    : [('A','C'), ('B','C')],
-        "input_masks"          : {...},        # raw binary masks before noise
-        "output_masks"         : {...}, 
-        "task_indices"         : [...],        # length = 5*samples_per_task
-        "stimulus_indices"     : [...]
-      }
+    Each stimulus contains one active feature per input pathway (one-hot within
+    pathway). For task (i→o), the target copies the active feature from input
+    pathway i to output pathway o.
+
+    Parameters
+    ----------
+    N_pathways : int
+        Number of input/output pathways (default 3).
+    N_features : int
+        Number of discrete features per pathway (default 3).
+    samples_per_task : int
+        Number of random stimuli to sample per task (default 100).
+    sd_scale : float
+        Scale for the diagonal per-pathway Gaussian noise (see Notes below).
+    seed : int or None
+        Seed for NumPy RNG (local to this function).
+
+    Returns
+    -------
+    input_sgl : (5*samples_per_task, N_pathways*N_features) float32
+        Noisy stimuli.
+    tasks_sgl : (5*samples_per_task, N_pathways^2) float32
+        One-hot task cues (exactly one active unit).
+    train_sgl : (5*samples_per_task, N_pathways*N_features) float32
+        One-hot targets derived deterministically from (stimulus, task).
+    meta : dict
+        {
+          "task_names"        : ['A','B','C','D','E'],
+          "structurally_dep"  : [('A','D'), ('A','E'), ('B','D'), ('B','E')],
+          "functionally_dep"  : [('A','B')],
+          "independent_pairs" : [('A','C'), ('B','C')],
+          "input_masks"       : {name: binary mask before noise},
+          "output_masks"      : {name: binary mask before noise},
+          "task_indices"      : array of task names per row,
+          "stimulus_indices"  : array of within-task stimulus indices,
+        }
+
+    Notes
+    -----
+    • Noise model matches `generate_task_patterns`: within-pathway diagonal
+      Gaussian jitter whose variance row is selected by the active feature.
+    • All tasks are equally represented (balanced) by construction.
+    • This function is the one used for training in our pipeline.
     """
+
     if seed is not None:
         np.random.seed(seed)
 
@@ -231,3 +326,84 @@ def generate_fixed_task_set(
     }
 
     return noisy_inputs, tasks_sgl, train_sgl, meta
+
+
+import numpy as np
+
+def _decode_task_from_vector(task_vec, N_pathways=3):
+    M = task_vec.reshape(N_pathways, N_pathways) # removed .T here, check if correct
+    i, o = np.argwhere(M == 1)[0]
+    return int(i), int(o)
+
+def _expected_target_from_mask(x_mask, i, o, N_features=3):
+    """x_mask is the CLEAN one-hot stimulus per pathway (length N_pathways*N_features)."""
+    y = np.zeros_like(x_mask)
+    f = np.argmax(x_mask[i*N_features:(i+1)*N_features])
+    y[o*N_features + f] = 1
+    return y
+
+def self_test_fixed(samples_per_task=1000, sd_scale=0.25, seed=0, N_pathways=3, N_features=3):
+    """
+    Mapping/balance checks that use CLEAN masks from meta (not argmax of the noisy inputs).
+    """
+    from prp.task_generator import generate_fixed_task_set
+    noisy_inputs, tasks_sgl, train_sgl, meta = generate_fixed_task_set(
+        N_pathways=N_pathways, N_features=N_features,
+        samples_per_task=samples_per_task, sd_scale=sd_scale, seed=seed
+    )
+
+    # 1) Mapping correctness: for each row k, rebuild target from CLEAN mask
+    task_names = list(meta["input_masks"].keys())
+    name_for_k = meta["task_indices"]           # array of strings 'A'..'E', one per row
+    stim_ix_for_k = meta["stimulus_indices"]    # within-task stimulus index, one per row
+
+    mismatches = 0
+    for k in range(len(noisy_inputs)):
+        name = name_for_k[k]                    # e.g., 'A'
+        sidx = int(stim_ix_for_k[k])            # which clean mask in that task
+        x_mask = meta["input_masks"][name][sidx]   # CLEAN one-hot stimulus
+        i, o = _decode_task_from_vector(tasks_sgl[k], N_pathways=N_pathways)
+        y_expected = _expected_target_from_mask(x_mask, i, o, N_features=N_features)
+
+        if not np.array_equal(y_expected, train_sgl[k]):
+            mismatches += 1
+            # Uncomment next two lines to inspect the first offending example:
+            # print("First mismatch at row", k, "task", name, "stimidx", sidx, "i->o", (i,o))
+            # break
+
+    assert mismatches == 0, f"Mapping mismatch detected on {mismatches} samples!"
+    print("✅ Mapping check passed (using clean masks).")
+
+    # 2) Balance check
+    from collections import Counter
+    def key(tvec):
+        return _decode_task_from_vector(tvec, N_pathways=N_pathways)
+    counts = Counter([key(t) for t in tasks_sgl])
+    print("✅ Balanced task counts:", counts)
+
+def noise_flip_rate(samples_per_task=1000, sd_scale=0.25, seed=0, N_pathways=3, N_features=3):
+    """
+    How often does noise flip the argmax within a pathway? (Explains why the earlier test failed.)
+    """
+    from prp.task_generator import generate_fixed_task_set
+    noisy_inputs, tasks_sgl, train_sgl, meta = generate_fixed_task_set(
+        N_pathways=N_pathways, N_features=N_features,
+        samples_per_task=samples_per_task, sd_scale=sd_scale, seed=seed
+    )
+    flips = 0
+    total = 0
+    for name, X_clean in meta["input_masks"].items():
+        X_noisy = noisy_inputs[meta["task_indices"] == name]
+        # align clean masks to the subset of rows for this task using stimulus_indices
+        S = meta["stimulus_indices"][meta["task_indices"] == name]
+        for row, sidx in enumerate(S):
+            x_clean = X_clean[int(sidx)]
+            x_noisy = X_noisy[row]
+            for p in range(N_pathways):
+                off = p * N_features
+                f_clean = np.argmax(x_clean[off:off+N_features])
+                f_noisy = np.argmax(x_noisy[off:off+N_features])
+                flips += int(f_clean != f_noisy)
+                total += 1
+    rate = flips / max(total, 1)
+    print(f"Noise flip rate (argmax differs from clean mask): {rate:.3%}")

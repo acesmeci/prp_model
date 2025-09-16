@@ -1,4 +1,21 @@
 # nn_wrapper.py
+"""Thin wrapper around `TaskNetwork` for training and temporal integration.
+
+Responsibilities:
+- Online training with SGD + MSE on (stim, task) → one-hot target pairs.
+- Single-step prediction (`predict`) for evaluation/debugging.
+- Time-course `integrate`: runs the network over T steps and applies
+  persistence (carry-over) by exponentially smoothing the pre-activations
+  at hidden and output layers, matching the paper’s p-parameter dynamics.
+
+Conventions:
+- Inputs: `stim_sequence` shape (T, I), `task_sequence` shape (T, Tdim).
+- Outputs: list of length T with output activations (torch.Tensor on CPU).
+- Task cues are ROW-MAJOR one-hots (index = in_dim * N_pathways + out_dim).
+
+This wrapper is what the PRP simulator calls to obtain output time series
+for subsequent LCA readout and reward-rate analyses.
+"""
 
 import torch
 import torch.nn as nn

@@ -1,4 +1,20 @@
 # task_network.py
+"""Core task-modulated feedforward network (Sim Study 3).
+
+Implements the 3-layer architecture from Musslick et al. (2023), Fig. 9:
+    stim_input → hidden → output
+                ↑          ↑
+             task_input  task_input
+
+Key details:
+- Both hidden and output layers receive additive task-control input.
+- Fixed bias offset of -2.0 added to net inputs at hidden and output.
+- Sigmoid activations; all weights init ~ U[-0.5, 0.5].
+- Task cues are encoded in ROW-MAJOR order: index = in_dim * N_pathways + out_dim.
+- Designed to be wrapped by `TaskNetworkWrapper` for online training and
+  time-course integration (with persistence) used in PRP simulations.
+"""
+
 
 import torch
 import torch.nn as nn
