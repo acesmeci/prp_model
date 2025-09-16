@@ -3,12 +3,12 @@ import numpy as np
 # These are the parameters used in the paper
 def run_lca(input_series,
             relevant_output_indices,
-            dt=0.05, # 0.1 in MATLAB
-            max_timesteps=100,
+            dt=0.1, # 0.1 in MATLAB
+            max_timesteps=100, # 1000 in MATLAB?
             lambda_=0.4, # 0.4 
             alpha=0.2, # 0.2
             beta=0.2, # 0.2
-            noise_std=0.1, # 0.2 in paper, 0.1 in MATLAB
+            noise_std=0.2, # 0.2 in paper, 0.1 in MATLAB
             threshold=1.0, # Decided by reward maximization (optimize_lca_threshold)
             t0=0.15 # 0.15
            ):
@@ -91,93 +91,87 @@ def run_lca_avg(input_series, relevant_output_indices,
 def run_lca_dist(
     input_series,
     relevant_output_indices,
-    thresholds=np.arange(0.0, 1.6, 0.1),
+    thresholds=np.arange(0.1, 1.6, 0.1),
     n_repeats=100,
-    dt=0.01, # dt_default = 0.01 in MATLAB, should be 0.1 though?
+    dt=0.1,
     tau=0.1,
     lambda_=0.4,
     alpha=0.2,
     beta=0.2,
-    noise_std=0.1, # 0.2 in paper, 0.1 in MATLAB
+    noise_std=0.2,
     t0=0.15,
-    ITI = 0.5,
+    ITI=0.5,
+    correct_response_idx=None,   # <-- NEW: true label (relative to relevant indices)
 ):
     """
-    Simulates full LCA dynamics for all thresholds.
-
-    Args:
-        input_series: shape [T, output_dim] (output activations)
-        relevant_output_indices: indices of the output units for this task
-        thresholds: list/array of threshold values
-        n_repeats: number of LCA simulations per threshold
-
-    Returns:
-        result_dict with keys:
-            'thresholds', 'reward_rates', 'accuracies', 'rts',
-            'rts_correct', 'rts_incorrect', 'all_choices'
+    Simulates full LCA dynamics for all thresholds and returns summary stats.
+    - If the accumulator never hits the threshold, RT is NaN and accuracy=0.
+    - Reward-rate is set to 0 when RT is NaN (so those z can't "win").
     """
+    import numpy as np
+
     input_series = np.array(input_series)
-    output_dim = input_series.shape[1]
-    n_steps = input_series.shape[0]
+    p = input_series[:, relevant_output_indices]          # [T, n_units]
+    n_steps, n_units = p.shape
     n_thresholds = len(thresholds)
-    n_units = len(relevant_output_indices)
-
-    input_series = input_series[:, relevant_output_indices]  # [T, units]
-
-    # Precompute external input (constant across sims)
-    p = input_series  # shape [T, units]
 
     # Lateral inhibition matrix
     W_inhib = -np.ones((n_units, n_units)) + np.eye(n_units)
 
     # Storage
-    all_rts = np.full((n_thresholds, n_repeats), np.nan)
-    all_accs = np.zeros((n_thresholds, n_repeats))
-    all_choices = np.full((n_thresholds, n_repeats), -1)
+    all_rts = np.full((n_thresholds, n_repeats), np.nan, dtype=float)
+    all_accs = np.zeros((n_thresholds, n_repeats), dtype=float)
 
     dt_tau = dt / tau
     sqrt_dt_tau = np.sqrt(dt_tau)
 
-    for thresh_idx, z in enumerate(thresholds):
-        for sim in range(n_repeats):
-            x = np.zeros(n_units)  # internal state
-            f = np.zeros(n_units)  # activation
+    # Label to score against
+    if correct_response_idx is None:
+        # fallback: most-active at t=0 within relevant block
+        correct_response_idx = int(np.argmax(p[0]))
+
+    for ti, z in enumerate(thresholds):
+        for rep in range(n_repeats):
+            x = np.zeros(n_units)  # state
+            f = np.zeros(n_units)  # rectified activation
             noise = noise_std * np.random.randn(n_steps, n_units)
 
-            rt = None
-            choice = None
+            rt = np.nan
+            choice = -1
 
             for t in range(n_steps):
                 I_ext = p[t]
                 lateral = beta * f @ W_inhib
                 dx = (I_ext - lambda_ * x + alpha * f + lateral) * dt_tau + noise[t] * sqrt_dt_tau
                 x += dx
-                f = np.maximum(x, 0)
+                f = np.maximum(x, 0.0)
 
-                above_thresh = np.where(f > z)[0]
-                if len(above_thresh) > 0:
-                    choice = np.random.choice(above_thresh)
+                above = np.where(f > z)[0]
+                if len(above) > 0:
+                    choice = int(np.random.choice(above))
                     rt = t * dt + t0
                     break
 
-            if rt is not None:
-                all_rts[thresh_idx, sim] = rt
-                all_choices[thresh_idx, sim] = choice
-                correct = (choice == np.argmax(p[0]))  # first time point = true label
-                all_accs[thresh_idx, sim] = int(correct)
+            all_rts[ti, rep] = rt
+            if not np.isnan(rt):
+                all_accs[ti, rep] = 1.0 if (choice == correct_response_idx) else 0.0
+            # else accuracy stays 0
 
-    # Compute stats
-    accs = np.nanmean(all_accs, axis=1)
-    rts = np.nanmean(all_rts, axis=1)
-    reward_rates = accs / (ITI + rts)  # prevent div by 0
+    # Aggregate
+    accs = np.nanmean(all_accs, axis=1)                   # [n_thresholds]
+    rts  = np.nanmean(all_rts,  axis=1)                   # [n_thresholds]
+
+    # Reward-rate: 0 when no decision (rts is NaN)
+    reward_rates = np.zeros_like(rts, dtype=float)
+    valid = ~np.isnan(rts)
+    reward_rates[valid] = accs[valid] / (ITI + rts[valid])
 
     return {
-        'thresholds': thresholds,
-        'reward_rates': reward_rates,
-        'accuracies': accs,
-        'rts': rts,
-        'all_choices': all_choices,
-        'all_rts': all_rts,
-        'all_accs': all_accs
+        "thresholds": np.array(thresholds, dtype=float),
+        "reward_rates": reward_rates,
+        "accuracies": accs,
+        "rts": rts,
+        "all_choices": None,
+        "all_rts": all_rts,
+        "all_accs": all_accs,
     }
-
