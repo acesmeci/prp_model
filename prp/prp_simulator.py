@@ -1,187 +1,271 @@
 # prp/prp_simulator.py
+"""
+PRP (Psychological Refractory Period) simulation helpers.
+
+This module runs dual-task (PRP) trials on a trained TaskNetworkWrapper and
+aggregates results across SOAs.
+
+Conventions (matches paper/MATLAB):
+- Task cues use ROW-MAJOR indexing: index = (input_dim * N_pathways) + output_dim.
+  No transposes anywhere in this file.
+- SOA is measured in LCA STEPS (not seconds). With dt_lca=0.1, SOA=1 → 0.1 s.
+- Task-1 cue is ON from t=0 until its decision time; then it is turned OFF.
+- Task-2 cue is OFF until its onset (SOA or policy-chosen); then it stays ON.
+- Task-2 RT is read from the “tail” (time ≥ onset), then shifted to absolute time.
+
+Typical usage:
+    results = sweep_soa(
+        task_net=wrapper,
+        trial_generator=lambda: generate_trial_pair(("B","A")),  # returns (stim1, stim2, cue1, cue2)
+        soa_values=range(1, 9),
+        n_trials_per_soa=30,
+        persistence=0.95,
+        z_task2_fixed=z_A,        # fixed LCA threshold for Task-2 (recommended)
+        optimize_onset=False
+    )
+    # plot results["rt_task2"] vs results["soa"]
+"""
 
 import numpy as np
 import torch
 from prp.lca import run_lca_avg
 from prp.threshold_utils import optimize_lca_threshold_dist, choose_onset_policy
 
-DEFAULT_N_REPEATS = 100  # number of repeats for LCA simulations
+# Number of stochastic LCA runs used when averaging within a trial
+DEFAULT_N_REPEATS = 100
+
 
 def run_prp_trial(
     task_net,
-    input_a, input_b,
-    task_a, task_b,
+    stim1, stim2,              # one-hot stimuli (same length)
+    cue1,  cue2,               # one-hot task cues (row-major: in*N + out)
     soa: int,
-    max_timesteps: int = 100, # Why is this 100 here and 50 in sweep_soa?
+    max_timesteps: int = 100,
     persistence: float = 0.5,
-    thresholds: np.ndarray = np.arange(0.0, 1.6, 0.1),
-    ITI: float = 0.5, # 0.5 --> 4.0
+    thresholds=np.arange(0.1, 1.6, 0.1),
+    ITI: float = 0.5,
     n_repeats: int = DEFAULT_N_REPEATS,
-    z_b_fixed: float = None,
-    dt_lca = 0.1, # to fix unit mismatch of rt_b and onset_b
+    z_task2_fixed: float | None = None,
+    dt_lca: float = 0.1,
+    t0: float = 0.15,
+    optimize_onset: bool = False,
+    policy_n_repeats: int = 30,
+    thresholds_policy: np.ndarray | None = None,
+    max_onset_delay: int = 5,
 ):
     """
-    Runs a single PRP trial with Task A at t=0 and Task B at t=soa (fixed).
-    Returns (rt_a, acc_a, rt_b, acc_b, output_np), where output_np is
-    the network activation time-series as a NumPy array of shape (T, D_out).
+    Simulate a single PRP trial with explicit Task-1 then Task-2.
+
+    Two-pass procedure:
+      (1) Integrate with Task-1 from t=0 and Task-2 from onset to obtain Task-1 RT.
+      (2) Rebuild the series with Task-1 turned OFF after its decision time and
+          evaluate Task-2 on the tail (time ≥ onset).
+
+    Parameters
+    ----------
+    task_net : TaskNetworkWrapper
+        Must expose .integrate(input_series, task_series, persistence).
+    stim1, stim2 : np.ndarray
+        One-hot stimuli (length = N_pathways * N_features). They may be identical
+        if you want a shared stimulus per trial (recommended).
+    cue1, cue2 : np.ndarray
+        One-hot task cues (length = N_pathways**2) using ROW-MAJOR indexing.
+    soa : int
+        Task-2 onset in LCA steps (seconds = soa * dt_lca).
+    max_timesteps : int
+        Length of the synthetic trial in LCA steps.
+    persistence : float
+        Network carry-over parameter p.
+    thresholds : np.ndarray
+        Grid of LCA thresholds used when optimizing (if needed).
+    ITI : float
+        Inter-trial interval used in reward-rate computations.
+    n_repeats : int
+        Number of LCA repeats for averaging stochastic dynamics.
+    z_task2_fixed : float | None
+        If provided, fixes Task-2’s threshold to this value. Otherwise a
+        reward-rate maximizing threshold is fit on the Task-2 tail.
+    dt_lca : float
+        LCA time step in seconds (unit conversion for RT).
+    t0 : float
+        Non-decision time added to LCA hitting times (seconds).
+    optimize_onset : bool
+        If True, choose Task-2 onset via reward-rate policy (bounded by
+        max_onset_delay). If False, onset = SOA.
+    policy_n_repeats : int
+        LCA repeats used inside the onset policy.
+    thresholds_policy : np.ndarray | None
+        Threshold grid used by the onset policy (use a coarse grid for speed).
+    max_onset_delay : int
+        Maximum extra delay (in steps) the policy may add to the given SOA.
+
+    Returns
+    -------
+    rt_task1 : float | None
+        Absolute RT (seconds) for Task-1, or None if no decision occurred.
+    acc_task1 : bool
+        Whether Task-1’s choice matched the correct feature (False if no decision).
+    rt_task2 : float | None
+        Absolute RT (seconds) for Task-2 (tail RT + onset*dt_lca), or None.
+    acc_task2 : bool
+        Whether Task-2’s choice matched the correct feature (False if no decision).
+    outputs_np : np.ndarray
+        Final pass output time series (after Task-1 gating).
+
+    Notes
+    -----
+    - Reward-rate optimization (optimize_onset / threshold fitting) relies on
+      optimize_lca_threshold_dist / run_lca_dist, which set RR=0 when no decision
+      occurs (prevents extreme thresholds from “winning” due to NaNs).
     """
-    # 1) Task B onset fixed to the experimental SOA
-    onset_b = soa
 
-    # 2) Build the raw time-series as Python lists
-    input_series = []
-    task_series  = []
-    input_dim = input_a.shape[0]
-    task_dim  = task_a.shape[0]
-
-    for t in range(max_timesteps):
-        stim_t = np.zeros(input_dim, dtype=np.float32)
-        task_t = np.zeros(task_dim,  dtype=np.float32)
-
-        # Task A present from t >= 0
-        stim_t += input_a
-        task_t += task_a
-
-        # Task B present from t >= onset_b
-        if t >= onset_b:
-            stim_t += input_b
-            task_t += task_b
-
-        input_series.append(stim_t)
-        task_series.append(task_t)
-
-    # 3a) Stack into NumPy arrays once
-    input_np = np.stack(input_series, axis=0)  # shape (T, input_dim)
-    task_np  = np.stack(task_series,  axis=0)  # shape (T, task_dim)
-
-    # 3b) Convert to torch tensors for integration
-    input_th = torch.from_numpy(input_np)
-    task_th  = torch.from_numpy(task_np)
-
-    # 3c) Run network integration
-    output_series_th = task_net.integrate(
-        input_th,
-        task_th,
-        persistence=persistence
-    )
-
-    # 3d) Convert back to NumPy array for LCA
-    output_np = np.stack([o.numpy() for o in output_series_th], axis=0)
-
-    # helper: decode which indices and correct response for a task
     def _decode(task_vec, input_vec, N_pathways=3, N_features=3):
-        mat = task_vec.reshape(N_pathways, N_pathways).T
-        in_dim, out_dim = np.argwhere(mat == 1)[0]
-        # correct feature within the input
-        correct = np.argmax(input_vec[in_dim * N_features:(in_dim+1)*N_features])
-        idxs = list(range(out_dim * N_features, (out_dim+1)*N_features))
+        """Map a ROW-MAJOR task cue to (relevant output indices, correct feature)."""
+        M = task_vec.reshape(N_pathways, N_pathways)   # row-major (no transpose)
+        in_dim, out_dim = np.argwhere(M == 1)[0]
+        # Correct feature is taken from the relevant input dimension
+        correct = np.argmax(input_vec[in_dim*N_features:(in_dim+1)*N_features])
+        # Absolute indices for the relevant output dimension
+        idxs = list(range(out_dim*N_features, (out_dim+1)*N_features))
         return idxs, correct
 
-    # 4) LCA for Task A (entire series)
-    idxs_a, corr_a = _decode(task_a, input_a)
-    z_a, _ = optimize_lca_threshold_dist(
-        output_np, idxs_a,
-        correct_response_idx=corr_a,
-        thresholds=thresholds,
-        ITI=ITI,
-        n_repeats=n_repeats
-    )
-    rt_a, choice_a = run_lca_avg(
-        output_np, idxs_a,
-        threshold=z_a,
-        n_repeats=n_repeats
-    )
-    acc_a = (choice_a == corr_a) if rt_a is not None else False
+    def _integrate(input_series, task_series):
+        """Run network integration over a full trial and return output time series."""
+        x = np.stack(input_series, axis=0).astype(np.float32)
+        t = np.stack(task_series,  axis=0).astype(np.float32)
+        out_th = task_net.integrate(
+            torch.from_numpy(x), torch.from_numpy(t), persistence=persistence
+        )
+        return np.stack([o.numpy() for o in out_th], axis=0)
 
-    # 5) LCA for Task B (only tail after onset)
-    idxs_b, corr_b = _decode(task_b, input_b)
-    tail = output_np[onset_b:]
-    # pick z_b_fixed if given, else optimize
-    if z_b_fixed is None:
-        z_b, _ = optimize_lca_threshold_dist(
-            tail, idxs_b,
-            correct_response_idx=corr_b,
-            thresholds=thresholds,
-            ITI=ITI,
-            n_repeats=n_repeats
+    # --- 0) Decide Task-2 onset (fixed SOA or reward-rate policy) ---
+    if optimize_onset:
+        onset2 = choose_onset_policy(
+            task_net, stim1, stim2, cue1, cue2,
+            soa=soa, max_onset_delay=max_onset_delay, max_timesteps=max_timesteps,
+            persistence=persistence, ITI=ITI, dt_lca=dt_lca, t0=t0,
+            z_b_fixed=z_task2_fixed, policy_n_repeats=policy_n_repeats,
+            thresholds_policy=thresholds_policy
         )
     else:
-        z_b = z_b_fixed
+        onset2 = soa
 
-    rt_b, choice_b = run_lca_avg(
-        tail, idxs_b,
-        threshold=z_b,
-        n_repeats=n_repeats
-    )
-    # bring RT_B back to absolute time
-    if rt_b is not None:
-        rt_b = rt_b + onset_b * dt_lca
-    acc_b = (choice_b == corr_b) if rt_b is not None else False
+    # --- 1) Pass 1: both cues from their onsets → measure Task-1 RT ---
+    inp_series, cue_series = [], []
+    I, T = stim1.shape[0], cue1.shape[0]
+    for t in range(max_timesteps):
+        s = np.zeros(I, dtype=np.float32); s += stim1
+        if t >= onset2: s += stim2
+        c = np.zeros(T, dtype=np.float32); c += cue1
+        if t >= onset2: c += cue2
+        inp_series.append(s); cue_series.append(c)
+    out1 = _integrate(inp_series, cue_series)
 
-    return rt_a, acc_a, rt_b, acc_b, output_np
+    idxs1, corr1 = _decode(cue1, stim1)
+    z1, _ = optimize_lca_threshold_dist(out1, idxs1, corr1, thresholds, ITI, n_repeats)
+    rt1, choice1 = run_lca_avg(out1, idxs1, threshold=z1, n_repeats=n_repeats, dt=dt_lca)
+    acc1 = (choice1 == corr1) if rt1 is not None else False
+
+    # Convert Task-1 RT (sec) to the step index when the cue should be gated off
+    t_off1 = int(np.ceil(max(0.0, (rt1 - t0) / dt_lca))) if rt1 is not None else max_timesteps
+
+    # --- 2) Pass 2: turn OFF Task-1 after its decision → evaluate Task-2 tail ---
+    inp_series, cue_series = [], []
+    for t in range(max_timesteps):
+        s = np.zeros(I, dtype=np.float32); s += stim1
+        if t >= onset2: s += stim2
+        c = np.zeros(T, dtype=np.float32)
+        if t < t_off1: c += cue1        # Task-1 only until its decision
+        if t >= onset2: c += cue2       # Task-2 from onset
+        inp_series.append(s); cue_series.append(c)
+    out2 = _integrate(inp_series, cue_series)
+
+    idxs2, corr2 = _decode(cue2, stim2)
+    tail = out2[onset2:]                 # readout for Task-2 starts at onset
+    if tail.shape[0] == 0:
+        return rt1, acc1, None, False, out2
+
+    if z_task2_fixed is None:
+        z2, _ = optimize_lca_threshold_dist(tail, idxs2, corr2, thresholds, ITI, n_repeats)
+    else:
+        z2 = z_task2_fixed
+
+    rt2, choice2 = run_lca_avg(tail, idxs2, threshold=z2, n_repeats=n_repeats, dt=dt_lca)
+    if rt2 is not None:
+        rt2 = rt2 + onset2 * dt_lca     # convert tail RT to absolute time
+    acc2 = (choice2 == corr2) if rt2 is not None else False
+
+    return rt1, acc1, rt2, acc2, out2
 
 
 def sweep_soa(
     task_net,
-    trial_generator,
+    trial_generator,                 # returns (stim1, stim2, cue1, cue2)
     soa_values,
     n_trials_per_soa: int = 10,
-    max_timesteps: int = 50,
+    max_timesteps: int = 100,
     persistence: float = 0.5,
     n_repeats: int = DEFAULT_N_REPEATS,
     verbose: bool = False,
-    z_b_fixed: float = None,
-    dt_lca = 0.1, # to fix unit mismatch of rt_b and onset_b, might be unnecessary here
+    z_task2_fixed: float | None = None,
+    dt_lca: float = 0.1,
+    t0: float = 0.15,
+    ITI: float = 0.5,
+    optimize_onset: bool = False,
+    thresholds=np.arange(0.1, 1.6, 0.1),
 ):
     """
-    Runs PRP simulations across a list of SOAs.
-    Returns a dict with keys: soa, rt_a, acc_a, rt_b, acc_b.
+    Run PRP simulations across a list of SOAs and aggregate RT/ACC.
+
+    Parameters
+    ----------
+    task_net : TaskNetworkWrapper
+    trial_generator : callable
+        Must return a tuple (stim1, stim2, cue1, cue2). For cleaner PRP curves,
+        prefer a generator that uses the same stimulus features for both tasks.
+    soa_values : iterable[int]
+        SOAs in LCA steps to evaluate (seconds = soa * dt_lca).
+    n_trials_per_soa : int
+        Number of trials to run per SOA.
+    max_timesteps, persistence, n_repeats, z_task2_fixed, dt_lca, t0, ITI,
+    optimize_onset, thresholds :
+        Passed through to run_prp_trial (see its docstring).
+
+    Returns
+    -------
+    dict
+        Keys:
+          "soa"        : list[int]
+          "rt_task1"   : list[float]
+          "acc_task1"  : list[float]
+          "rt_task2"   : list[float]
+          "acc_task2"  : list[float]
+        Each list contains the per-SOA mean across valid trials (NaNs dropped).
     """
-    results = {k: [] for k in ("soa", "rt_a", "acc_a", "rt_b", "acc_b")}
-
+    results = {k: [] for k in ("soa", "rt_task1", "acc_task1", "rt_task2", "acc_task2")}
     for soa in soa_values:
-        rt_a_vals, acc_a_vals = [], []
-        rt_b_vals, acc_b_vals = [], []
-
-        if verbose:
-            print(f"▶️ Starting SOA = {soa}")
-
+        r1, a1, r2, a2 = [], [], [], []
         for _ in range(n_trials_per_soa):
-            inp_a, inp_b, t_a, t_b = trial_generator()
-
-            rt_a, acc_a, rt_b, acc_b, _ = run_prp_trial(
-                task_net=task_net,
-                input_a=inp_a,
-                input_b=inp_b,
-                task_a=t_a,
-                task_b=t_b,
-                soa=soa,
-                max_timesteps=max_timesteps,
-                persistence=persistence,
-                n_repeats=n_repeats,
-                z_b_fixed=z_b_fixed
+            s1, s2, c1, c2 = trial_generator()
+            rt1, acc1, rt2, acc2, _ = run_prp_trial(
+                task_net, s1, s2, c1, c2, soa,
+                max_timesteps=max_timesteps, persistence=persistence,
+                thresholds=thresholds, ITI=ITI, n_repeats=n_repeats,
+                z_task2_fixed=z_task2_fixed, dt_lca=dt_lca, t0=t0,
+                optimize_onset=optimize_onset
             )
+            # collect valid decisions only
+            if rt1 is not None: r1.append(rt1); a1.append(acc1)
+            if rt2 is not None: r2.append(rt2); a2.append(acc2)
 
-            # collect only valid, non-None RTs
-            if rt_a is not None and not np.isnan(rt_a):
-                rt_a_vals.append(rt_a)
-                acc_a_vals.append(acc_a)
-            if rt_b is not None and not np.isnan(rt_b):
-                rt_b_vals.append(rt_b)
-                acc_b_vals.append(acc_b)
-
-        # aggregate
         results["soa"].append(soa)
-        results["rt_a"].append(np.mean(rt_a_vals) if rt_a_vals else np.nan)
-        results["acc_a"].append(np.mean(acc_a_vals) if acc_a_vals else np.nan)
-        results["rt_b"].append(np.mean(rt_b_vals) if rt_b_vals else np.nan)
-        results["acc_b"].append(np.mean(acc_b_vals) if acc_b_vals else np.nan)
+        results["rt_task1"].append(np.mean(r1) if r1 else np.nan)
+        results["acc_task1"].append(np.mean(a1) if a1 else np.nan)
+        results["rt_task2"].append(np.mean(r2) if r2 else np.nan)
+        results["acc_task2"].append(np.mean(a2) if a2 else np.nan)
 
         if verbose:
-            print(
-                f"✅ SOA={soa} | "
-                f"A: RT={results['rt_a'][-1]:.2f}, ACC={results['acc_a'][-1]:.2f} | "
-                f"B: RT={results['rt_b'][-1]:.2f}, ACC={results['acc_b'][-1]:.2f}"
-            )
+            print(f"SOA={soa} | T1 RT={results['rt_task1'][-1]:.2f} "
+                  f"| T2 RT={results['rt_task2'][-1]:.2f}")
 
     return results
