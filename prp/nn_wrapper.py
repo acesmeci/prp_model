@@ -34,8 +34,15 @@ class TaskNetworkWrapper:
         task_input_dim: int,
         hidden_dim: int,
         output_dim: int,
+        # training hyperparams
         learning_rate: float = 0.3,
-        device: str = "cpu"
+        weight_decay: float | None = None,  # if None → model.default_weight_decay
+        device: str = "cpu",
+        # TaskNetwork init knobs (Sim-3 parity defaults)
+        init_scale: float = 0.1,
+        init_task_scale: float | None = None,  # None → equals init_scale
+        bias_offset: float = -2.0,
+        default_weight_decay: float = 0.0,     # Sim-3 uses 0.0
     ):
         self.device = torch.device(device)
         self.model = TaskNetwork(
@@ -43,13 +50,18 @@ class TaskNetworkWrapper:
             task_input_dim=task_input_dim,
             hidden_dim=hidden_dim,
             output_dim=output_dim,
+            init_scale=init_scale,
+            init_task_scale=init_task_scale,
+            bias_offset=bias_offset,
+            default_weight_decay=default_weight_decay,
         ).to(self.device)
 
         self.loss_fn = nn.MSELoss()
-        self.optimizer = torch.optim.SGD(self.model.parameters(), lr=learning_rate)
+        # Use the model's helper so default_weight_decay is respected
+        self.optimizer = self.model.build_optimizer(lr=learning_rate, weight_decay=weight_decay)
 
-        self.loss_log = []
-        self.accuracy_log = []
+        self.loss_log: list[float] = []
+        self.accuracy_log: list[float] = []
 
     def train_online(
         self,
@@ -69,55 +81,50 @@ class TaskNetworkWrapper:
         targets:     (N, output_dim)     float tensor (one-hot)
         """
         self.model.train()
-        stim = stim_inputs.to(self.device)
-        task = task_inputs.to(self.device)
-        y_true = targets.to(self.device)
+        stim = stim_inputs.to(self.device).float()
+        task = task_inputs.to(self.device).float()
+        y_true = targets.to(self.device).float()
 
+        N = stim.size(0)
         for epoch in range(max_epochs):
             total_loss = 0.0
             correct = 0
 
-            # Shuffle each epoch to avoid order effects
-            perm = torch.randperm(stim.size(0))
+            perm = torch.randperm(N, device=self.device)
             for i in perm:
                 x_i = stim[i : i + 1]
                 t_i = task[i : i + 1]
                 y_i = y_true[i : i + 1]
 
-                self.optimizer.zero_grad()
+                self.optimizer.zero_grad(set_to_none=True)
                 y_pred, _ = self.model(x_i, t_i)
                 loss = self.loss_fn(y_pred, y_i)
                 loss.backward()
                 self.optimizer.step()
 
-                total_loss += loss.item()
-                correct += (y_pred.argmax(dim=1) == y_i.argmax(dim=1)).sum().item()
+                total_loss += float(loss)
+                correct += int((y_pred.argmax(dim=1) == y_i.argmax(dim=1)).sum())
 
-            avg_loss = total_loss / stim.size(0)
-            acc = correct / stim.size(0)
+            avg_loss = total_loss / N
+            acc = correct / N
             self.loss_log.append(avg_loss)
             self.accuracy_log.append(acc)
 
-            if epoch % print_every == 0:
+            if print_every and (epoch % print_every == 0):
                 print(f"Epoch {epoch:04d} | Loss: {avg_loss:.4f} | Acc: {acc:.3f}")
 
             if avg_loss <= stop_loss:
                 print(f"✅ Converged at epoch {epoch:04d} | Loss: {avg_loss:.4f}")
                 break
-
         else:
             print(f"⚠️ Max epochs ({max_epochs}) reached | Final loss: {avg_loss:.4f}")
 
     def predict(self, stim_input: torch.Tensor, task_input: torch.Tensor):
-        """
-        Single-timestep prediction: returns output vector.
-        stim_input: (stim_input_dim,)
-        task_input: (task_input_dim,)
-        """
+        """Single-timestep prediction: returns output vector."""
         self.model.eval()
         with torch.no_grad():
-            x = stim_input.unsqueeze(0).to(self.device)
-            t = task_input.unsqueeze(0).to(self.device)
+            x = stim_input.unsqueeze(0).to(self.device).float()
+            t = task_input.unsqueeze(0).to(self.device).float()
             y_pred, _ = self.model(x, t)
         return y_pred.squeeze(0).cpu()
 
@@ -129,26 +136,22 @@ class TaskNetworkWrapper:
     ):
         """
         Runs the network over a sequence of timesteps, applying
-        temporal persistence to net inputs. Returns a list of
-        output activations for each timestep.
+        temporal persistence to net inputs. Returns list of outputs.
 
         stim_sequence: (T, stim_input_dim)
         task_sequence: (T, task_input_dim)
-        persistence:   a float in [0,1] controlling leak (p in paper)
+        persistence:   float in [0,1] controlling leak (p in paper)
         """
         self.model.eval()
         outputs = []
-
-        # placeholders for previous net inputs
         prev_net_h = None
         prev_net_o = None
 
         with torch.no_grad():
             for t_idx in range(stim_sequence.size(0)):
-                x_t = stim_sequence[t_idx : t_idx + 1].to(self.device)
-                t_t = task_sequence[t_idx : t_idx + 1].to(self.device)
+                x_t = stim_sequence[t_idx : t_idx + 1].to(self.device).float()
+                t_t = task_sequence[t_idx : t_idx + 1].to(self.device).float()
 
-                # compute raw net_h
                 net_h = (
                     self.model.fc_input_hidden(x_t)
                     + self.model.fc_task_hidden(t_t)
@@ -159,7 +162,6 @@ class TaskNetworkWrapper:
                 y_h = torch.sigmoid(net_h)
                 prev_net_h = net_h
 
-                # compute raw net_o
                 net_o = (
                     self.model.fc_hidden_output(y_h)
                     + self.model.fc_task_output(t_t)
@@ -174,8 +176,6 @@ class TaskNetworkWrapper:
 
         return outputs
 
-    # --- Optional debugging methods ---
-
     def get_weights(self):
         return {
             "W_input_hidden": self.model.fc_input_hidden.weight.detach().cpu().numpy(),
@@ -185,5 +185,4 @@ class TaskNetworkWrapper:
         }
 
     def logs(self):
-        """Returns (loss_log, accuracy_log)."""
         return self.loss_log, self.accuracy_log
