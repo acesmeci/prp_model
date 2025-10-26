@@ -1,3 +1,4 @@
+# This is for fixed task-to-hidden weights for Sim Study 2?
 import torch
 
 def initialize_shared_task_to_hidden_weights(model, stimulus_task_map, hidden_size=100, share_ratio=0.5, weight_value=1.0, seed=42):
