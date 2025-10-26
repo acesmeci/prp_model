@@ -66,7 +66,7 @@ def run_prp_trial(
     task_net : TaskNetworkWrapper
         Must expose .integrate(input_series, task_series, persistence).
     stim1, stim2 : np.ndarray
-        One-hot stimuli (length = N_pathways * N_features). They may be identical
+        One-hot stimuli (length = N_pathways * N_features). Should be identical
         if you want a shared stimulus per trial (recommended).
     cue1, cue2 : np.ndarray
         One-hot task cues (length = N_pathways**2) using ROW-MAJOR indexing.

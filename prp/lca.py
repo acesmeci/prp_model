@@ -24,7 +24,7 @@ import numpy as np
 # These are the parameters used in the paper
 def run_lca(input_series,
             relevant_output_indices,
-            dt=0.1,  # 0.1 in MATLAB
+            dt=0.1,  # 0.1 in MATLAB # UPDATE: It is actually 0.01, and the SOA range is 5:5:60 (range 5-60, steps of 5; corresponds to 50 to 600 ms)
             max_timesteps=100,  # 1000 in MATLAB?
             lambda_=0.4,  # 0.4
             alpha=0.2,  # 0.2
