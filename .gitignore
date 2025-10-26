@@ -13,7 +13,7 @@ __pycache__/
 
 # Ignore logging notes
 todo.md
-troubleshooting_log.md
+troubleshooting.md
 
 # Ignore VS Code Git bookkeeping files
 .gitignored_files_list
