@@ -43,7 +43,7 @@ def run_prp_trial(
     max_timesteps: int = 100,
     persistence: float = 0.5,
     thresholds=np.arange(0.1, 1.6, 0.1),
-    ITI: float = 0.5,
+    ITI: float = 4.0, # 0.5
     n_repeats: int = DEFAULT_N_REPEATS,
     z_task2_fixed: float | None = None,
     dt_lca: float = 0.1,
@@ -182,20 +182,32 @@ def run_prp_trial(
 
     idxs2, corr2 = _decode(cue2, stim2)
     tail = out2[onset2:]                 # readout for Task-2 starts at onset
+    
+    # returns onset2 as well
     if tail.shape[0] == 0:
-        return rt1, acc1, None, False, out2
+        return rt1, acc1, None, False, out2, onset2, None
+
 
     if z_task2_fixed is None:
         z2, _ = optimize_lca_threshold_dist(tail, idxs2, corr2, thresholds, ITI, n_repeats)
     else:
         z2 = z_task2_fixed
 
-    rt2, choice2 = run_lca_avg(tail, idxs2, threshold=z2, n_repeats=n_repeats, dt=dt_lca)
-    if rt2 is not None:
-        rt2 = rt2 + onset2 * dt_lca     # convert tail RT to absolute time
-    acc2 = (choice2 == corr2) if rt2 is not None else False
+    # **Returns rt2_tail + onset2, so that I dont have to compute tail_rt in notebook using raw SOA
+    rt2_tail, choice2 = run_lca_avg(
+        tail, idxs2, threshold=z2, n_repeats=n_repeats, dt=dt_lca
+    )
 
-    return rt1, acc1, rt2, acc2, out2
+    rt2_abs = None
+    if rt2_tail is not None:
+        rt2_abs = rt2_tail + onset2 * dt_lca
+
+    acc2 = (choice2 == corr2) if rt2_tail is not None else False
+
+    # Return both: absolute RT (legacy) + tail RT + the actual onset used
+    return rt1, acc1, rt2_abs, acc2, out2, onset2, rt2_tail
+
+
 
 
 def sweep_soa(
@@ -210,7 +222,7 @@ def sweep_soa(
     z_task2_fixed: float | None = None,
     dt_lca: float = 0.1,
     t0: float = 0.15,
-    ITI: float = 0.5,
+    ITI: float = 4.0, #0.5
     optimize_onset: bool = False,
     thresholds=np.arange(0.1, 1.6, 0.1),
 ):
@@ -242,12 +254,17 @@ def sweep_soa(
           "acc_task2"  : list[float]
         Each list contains the per-SOA mean across valid trials (NaNs dropped).
     """
-    results = {k: [] for k in ("soa", "rt_task1", "acc_task1", "rt_task2", "acc_task2")}
+    
+    results = {k: [] for k in (
+        "soa", "rt_task1", "acc_task1",
+        "rt_task2", "acc_task2",
+        "onset2", "rt_task2_tail"
+    )}
     for soa in soa_values:
         r1, a1, r2, a2 = [], [], [], []
         for _ in range(n_trials_per_soa):
             s1, s2, c1, c2 = trial_generator()
-            rt1, acc1, rt2, acc2, _ = run_prp_trial(
+            rt1, acc1, rt2, acc2, _, onset2, rt2_tail = run_prp_trial(
                 task_net, s1, s2, c1, c2, soa,
                 max_timesteps=max_timesteps, persistence=persistence,
                 thresholds=thresholds, ITI=ITI, n_repeats=n_repeats,
@@ -255,14 +272,27 @@ def sweep_soa(
                 optimize_onset=optimize_onset
             )
             # collect valid decisions only
-            if rt1 is not None: r1.append(rt1); a1.append(acc1)
-            if rt2 is not None: r2.append(rt2); a2.append(acc2)
+            onsets, r2_tail = [], []
+
+            if rt1 is not None:
+                r1.append(rt1); a1.append(acc1)
+
+            if rt2 is not None:
+                r2.append(rt2); a2.append(acc2)
+
+            if rt2_tail is not None:
+                r2_tail.append(rt2_tail)
+                onsets.append(onset2)
+
 
         results["soa"].append(soa)
         results["rt_task1"].append(np.mean(r1) if r1 else np.nan)
         results["acc_task1"].append(np.mean(a1) if a1 else np.nan)
         results["rt_task2"].append(np.mean(r2) if r2 else np.nan)
         results["acc_task2"].append(np.mean(a2) if a2 else np.nan)
+        results["onset2"].append(np.mean(onsets) if onsets else np.nan)
+        results["rt_task2_tail"].append(np.mean(r2_tail) if r2_tail else np.nan)
+
 
         if verbose:
             print(f"SOA={soa} | T1 RT={results['rt_task1'][-1]:.2f} "
