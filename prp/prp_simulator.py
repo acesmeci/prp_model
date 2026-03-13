@@ -43,7 +43,7 @@ def run_prp_trial(
     max_timesteps: int = 100,
     persistence: float = 0.5,
     thresholds=np.arange(0.1, 1.6, 0.1),
-    ITI: float = 4.0, # 0.5
+    ITI: float = 0.5, # 0.5
     n_repeats: int = DEFAULT_N_REPEATS,
     z_task2_fixed: float | None = None,
     dt_lca: float = 0.1,
@@ -153,11 +153,17 @@ def run_prp_trial(
     # --- 1) Pass 1: both cues from their onsets → measure Task-1 RT ---
     inp_series, cue_series = [], []
     I, T = stim1.shape[0], cue1.shape[0]
+    # Pass 1: Disentange task_stim onset and task_cue onset, by making stim2 appear at SOA
     for t in range(max_timesteps):
+        # Stimuli
         s = np.zeros(I, dtype=np.float32); s += stim1
-        if t >= onset2: s += stim2
+        if t >= soa:     # <-- CHANGED (stim2 appears at SOA)
+            s += stim2
+        # Task cues
         c = np.zeros(T, dtype=np.float32); c += cue1
-        if t >= onset2: c += cue2
+        if t >= onset2:  # <-- unchanged (task-2 cue at optimized onset)
+            c += cue2
+
         inp_series.append(s); cue_series.append(c)
     out1 = _integrate(inp_series, cue_series)
 
@@ -173,7 +179,7 @@ def run_prp_trial(
     inp_series, cue_series = [], []
     for t in range(max_timesteps):
         s = np.zeros(I, dtype=np.float32); s += stim1
-        if t >= onset2: s += stim2
+        if t >= soa: s += stim2         # stim2 appears at SOA, instead of onset2
         c = np.zeros(T, dtype=np.float32)
         if t < t_off1: c += cue1        # Task-1 only until its decision
         if t >= onset2: c += cue2       # Task-2 from onset
@@ -181,7 +187,7 @@ def run_prp_trial(
     out2 = _integrate(inp_series, cue_series)
 
     idxs2, corr2 = _decode(cue2, stim2)
-    tail = out2[onset2:]                 # readout for Task-2 starts at onset
+    tail = out2[onset2:]                 # readout for Task-2 starts at onset !!! I think this should start from SOA
     
     # returns onset2 as well
     if tail.shape[0] == 0:
@@ -194,19 +200,18 @@ def run_prp_trial(
         z2 = z_task2_fixed
 
     # **Returns rt2_tail + onset2, so that I dont have to compute tail_rt in notebook using raw SOA
-    rt2_tail, choice2 = run_lca_avg(
-        tail, idxs2, threshold=z2, n_repeats=n_repeats, dt=dt_lca
-    )
+    rt2_tail, choice2 = run_lca_avg(tail, idxs2, threshold=z2,
+                                n_repeats=n_repeats, dt=dt_lca)
 
     rt2_abs = None
+    rt2_from_stim = None
     if rt2_tail is not None:
         rt2_abs = rt2_tail + onset2 * dt_lca
+        rt2_from_stim = rt2_tail + (onset2 - soa) * dt_lca  # <-- NEW, paper-faithful RT2
 
     acc2 = (choice2 == corr2) if rt2_tail is not None else False
 
-    # Return both: absolute RT (legacy) + tail RT + the actual onset used
-    return rt1, acc1, rt2_abs, acc2, out2, onset2, rt2_tail
-
+    return rt1, acc1, rt2_abs, acc2, out2, onset2, rt2_tail, rt2_from_stim
 
 
 
@@ -222,7 +227,7 @@ def sweep_soa(
     z_task2_fixed: float | None = None,
     dt_lca: float = 0.1,
     t0: float = 0.15,
-    ITI: float = 4.0, #0.5
+    ITI: float = 0.5, #0.5
     optimize_onset: bool = False,
     thresholds=np.arange(0.1, 1.6, 0.1),
 ):
@@ -258,21 +263,22 @@ def sweep_soa(
     results = {k: [] for k in (
         "soa", "rt_task1", "acc_task1",
         "rt_task2", "acc_task2",
-        "onset2", "rt_task2_tail"
+        "onset2", "rt_task2_tail", "rt_task2_from_stim"
     )}
+
     for soa in soa_values:
         r1, a1, r2, a2 = [], [], [], []
+        onsets, r2_tail, r2_from_stim = [], [], []   # <-- moved here
+
         for _ in range(n_trials_per_soa):
             s1, s2, c1, c2 = trial_generator()
-            rt1, acc1, rt2, acc2, _, onset2, rt2_tail = run_prp_trial(
+            rt1, acc1, rt2, acc2, _, onset2, rt2_tail_i, rt2_from_stim_i = run_prp_trial(  # <-- rename
                 task_net, s1, s2, c1, c2, soa,
                 max_timesteps=max_timesteps, persistence=persistence,
                 thresholds=thresholds, ITI=ITI, n_repeats=n_repeats,
                 z_task2_fixed=z_task2_fixed, dt_lca=dt_lca, t0=t0,
                 optimize_onset=optimize_onset
             )
-            # collect valid decisions only
-            onsets, r2_tail = [], []
 
             if rt1 is not None:
                 r1.append(rt1); a1.append(acc1)
@@ -280,9 +286,11 @@ def sweep_soa(
             if rt2 is not None:
                 r2.append(rt2); a2.append(acc2)
 
-            if rt2_tail is not None:
-                r2_tail.append(rt2_tail)
+            if rt2_tail_i is not None:
+                r2_tail.append(rt2_tail_i)
                 onsets.append(onset2)
+            if rt2_from_stim_i is not None:
+                r2_from_stim.append(rt2_from_stim_i)
 
 
         results["soa"].append(soa)
@@ -292,10 +300,12 @@ def sweep_soa(
         results["acc_task2"].append(np.mean(a2) if a2 else np.nan)
         results["onset2"].append(np.mean(onsets) if onsets else np.nan)
         results["rt_task2_tail"].append(np.mean(r2_tail) if r2_tail else np.nan)
+        results["rt_task2_from_stim"].append(np.mean(r2_from_stim) if r2_from_stim else np.nan)
 
 
         if verbose:
             print(f"SOA={soa} | T1 RT={results['rt_task1'][-1]:.2f} "
-                  f"| T2 RT={results['rt_task2'][-1]:.2f}")
+                f"| T2 RT={results['rt_task2'][-1]:.2f}")
 
     return results
+

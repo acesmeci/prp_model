@@ -25,10 +25,10 @@ import numpy as np
 def run_lca(input_series,
             relevant_output_indices,
             dt=0.1,  # 0.1 in MATLAB # UPDATE: It is actually 0.01, and the SOA range is 5:5:60 (range 5-60, steps of 5; corresponds to 50 to 600 ms)
-            max_timesteps=100,  # 1000 in MATLAB?
+            max_timesteps=100,  # 1000 in MATLAB?, I used 100 for all my simulations, p.45 says 100 sims of LCA
             lambda_=0.4,  # 0.4
             alpha=0.2,  # 0.2
-            beta=0.2,  # 0.2
+            beta=0.2,  # 0.2 # lateral inhibition: has the highest potential for steep PRP
             noise_std=0.2,  # 0.2 in paper, 0.1 in MATLAB
             threshold=1.0,  # decided by reward maximization (optimize_lca_threshold)
             t0=0.15  # 0.15
@@ -95,8 +95,8 @@ def run_lca(input_series,
 
 def run_lca_avg(input_series, relevant_output_indices,
                 n_repeats=100, dt=0.1, max_timesteps=100,
-                lambda_=0.4, alpha=0.2, beta=0.2,
-                noise_std=0.1,  # 0.2 in paper, 0.1 in MATLAB
+                lambda_=0.4, alpha=0.2, beta=0.2, #0.2
+                noise_std=0.2,  # 0.2 in paper, 0.1 in MATLAB
                 threshold=1.0, t0=0.15):
     """
     Repeat `run_lca` and return mean RT and most-common choice.
@@ -159,10 +159,10 @@ def run_lca_dist(
     tau=0.1,
     lambda_=0.4,
     alpha=0.2,
-    beta=0.2,
+    beta=0.2, # 0.2
     noise_std=0.2,
     t0=0.15,
-    ITI=0.5,
+    ITI=0.5, #0.5
     correct_response_idx=None,   # true label (relative to relevant indices)
 ):
     """

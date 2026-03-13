@@ -104,6 +104,7 @@ class TaskNetwork(nn.Module):
         )
 
     # ----- Activation-based task similarity (CorrTaskAvg-style) -----
+    # Figure 14, Rational boundedness paper
     @torch.no_grad()
     def task_similarity_hidden(
         self,

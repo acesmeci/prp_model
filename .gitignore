@@ -18,3 +18,6 @@ troubleshooting.md
 # Ignore VS Code Git bookkeeping files
 .gitignored_files_list
 .gituntracked_files_list
+
+# Ensemble trained networks
+ensemble_ckpt_p09/

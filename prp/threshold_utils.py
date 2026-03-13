@@ -20,9 +20,10 @@ Conventions:
 # - optimize_lca_threshold
 
 import numpy as np
+import torch
 from prp.lca import run_lca_avg
 from prp.lca import run_lca_dist
-import torch
+from prp.training_set import generate_training_set_matlab_style
 
 DEFAULT_N_REPEATS = 100  # Default number of repeats for LCA simulations. Use 100 if you have access to a GPU.
 
@@ -76,7 +77,6 @@ def optimize_lca_threshold(input_series, relevant_output_indices, correct_respon
 
 
 # Optimize LCA threshold with run_lca_dist. Faithful to MATLAB implementation
-# Correct_response_idx is not used directly here, because run_lca_dist() infers correctness from argmax(p[0]). Change this if needed.
 def optimize_lca_threshold_dist(
     input_series,
     relevant_output_indices,
@@ -89,7 +89,7 @@ def optimize_lca_threshold_dist(
     lambda_=0.4,
     alpha=0.2,
     beta=0.2,
-    noise_std=0.2,
+    noise_std=0.2, #0.2 in paper, check if it is 0.1 in MATLAB
     t0=0.15,
     verbose=False,
 ):
@@ -126,6 +126,9 @@ def optimize_lca_threshold_dist(
     -----
     Our `run_lca_dist` treats “no decision” trials as RR=0, preventing large z
     values from being selected due to NaNs.
+    !!!For tiebreak situations the function checks all units above threshold in the same timestep 
+    and then randomly picks one. Its not literally the first unit to cross the threshold.!!!
+    # This shouldn't be a huge deal but tiebreaks in discretized timesteps *is* possible.
     """
     results = run_lca_dist(
         input_series=input_series,
@@ -148,6 +151,103 @@ def optimize_lca_threshold_dist(
         print(f"✅ Best threshold z: {best_threshold:.2f}")
 
     return best_threshold, results
+
+
+def _decode_task(task_vec, input_vec, N_pathways=3, N_features=3):
+    """Row-major: decode task cue to relevant output indices and correct feature index."""
+    M = task_vec.reshape(N_pathways, N_pathways)
+    i_in, i_out = np.argwhere(M == 1)[0]
+    correct = int(np.argmax(input_vec[i_in * N_features : (i_in + 1) * N_features]))
+    idxs = list(range(i_out * N_features, (i_out + 1) * N_features))
+    return idxs, correct
+
+
+def compute_fixed_threshold_for_task_meanargmax(
+    wrapper,
+    task_name="A",
+    K=20,
+    thresholds=None,
+    ITI=0.5,
+    n_repeats=100,
+    persistence=0.9,
+    seed=42,
+    verbose=False,
+    N_pathways=3,
+    N_features=3,
+):
+    """
+    Select a fixed LCA threshold z for one task by argmax of mean reward-rate over K stimuli.
+
+    Samples K single-task patterns for the chosen task, integrates once per stimulus,
+    runs optimize_lca_threshold_dist for each, stacks RR curves, takes mean over K,
+    then returns the threshold that maximizes this mean RR.
+
+    Parameters
+    ----------
+    wrapper : TaskNetworkWrapper
+        Network wrapper with .integrate(x, t, persistence=...) returning list of tensors.
+    task_name : str
+        Task label, e.g. "A", "B".
+    K : int
+        Number of stimuli to sample for the task.
+    thresholds : np.ndarray or None
+        Threshold grid. If None, uses np.arange(0.1, 1.5, 0.1).
+    ITI : float
+        Inter-trial interval for reward-rate.
+    n_repeats : int
+        LCA repeats per threshold per stimulus.
+    persistence : float
+        Integration persistence.
+    seed : int
+        Random seed for sampling stimuli.
+    verbose : bool
+        If True, print selected z.
+    N_pathways, N_features : int
+        Used for row-major decoding.
+
+    Returns
+    -------
+    float
+        Selected threshold z_star.
+    """
+    if thresholds is None:
+        thresholds = np.arange(0.1, 1.5, 0.1)
+    thresholds = np.asarray(thresholds)
+
+    X, T, _, meta = generate_training_set_matlab_style()
+    mask = meta["task_indices"] == task_name
+    X, T = X[mask], T[mask]
+
+    rng = np.random.RandomState(seed)
+    n_avail = len(X)
+    pick = rng.choice(n_avail, size=min(K, n_avail), replace=False)
+
+    rr_curves = []
+    for k in pick:
+        x = torch.from_numpy(X[k][None, :]).float()
+        t = torch.from_numpy(T[k][None, :]).float()
+        out_th = wrapper.integrate(x, t, persistence=persistence)
+        out_np = np.stack([o.numpy() for o in out_th], axis=0)
+
+        rel_idxs, correct_idx = _decode_task(T[k], X[k], N_pathways=N_pathways, N_features=N_features)
+
+        _, res = optimize_lca_threshold_dist(
+            out_np,
+            rel_idxs,
+            correct_response_idx=correct_idx,
+            thresholds=thresholds,
+            ITI=ITI,
+            n_repeats=n_repeats,
+        )
+        rr_curves.append(res["reward_rates"])
+
+    rr_curves = np.stack(rr_curves, axis=0)
+    rr_mean = rr_curves.mean(axis=0)
+    z_star = float(thresholds[int(np.argmax(rr_mean))])
+
+    if verbose:
+        print(f"Selected fixed z_{task_name} (argmax of mean RR): {z_star:.3f}")
+    return z_star
 
 
 def choose_onset_policy(
@@ -234,7 +334,7 @@ def choose_onset_policy(
             task_t = np.zeros(task_dim, dtype=np.float32)
             # stimuli
             stim_t += input_a
-            if t >= onset_b:
+            if t >= soa:
                 stim_t += input_b
             # control (task cues)
             if gate_after_a_steps is None or t < gate_after_a_steps:
