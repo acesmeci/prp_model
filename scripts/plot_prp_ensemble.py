@@ -159,6 +159,15 @@ def main():
     ap.add_argument("--workers", type=int, default=6,
                     help="Parallel workers for sweep (0=serial). Default 6.")
     ap.add_argument("--out_png", type=str, default="prp_ensemble_rt2_from_stim.png")
+    
+    # --- New Pashler-related Arguments ---
+    ap.add_argument("--add_pashler", action="store_true", 
+                    help="Overlay the Pashler (1994) Figure 1 empirical curve.")
+    ap.add_argument("--pashler_mode", type=str, choices=["absolute", "relative"], default="absolute",
+                    help="absolute: starts at 50ms; relative: starts at the simulation's first SOA.")
+    ap.add_argument("--align_pashler_rt", action="store_true",
+                    help="Vertically shift Pashler curve to match simulation RT2 at the first point.")
+    
     args = ap.parse_args()
 
     ckpt_dir = Path(args.ckpt_dir)
@@ -190,12 +199,6 @@ def main():
     ind_curves = []
     for idx, z_A, dep_rt2, ind_rt2 in sorted(results, key=lambda r: r[0]):
         if z_A is None:
-            model_path = ckpt_dir / f"net_{idx:02d}.pt"
-            z_path = ckpt_dir / f"net_{idx:02d}_z_{args.z_task}.json"
-            if not model_path.exists():
-                print(f"Skip missing model: {model_path}")
-            elif not z_path.exists():
-                print(f"Skip missing z: {z_path}")
             continue
         dep_curves.append(dep_rt2)
         ind_curves.append(ind_rt2)
@@ -213,54 +216,60 @@ def main():
     dep_slope = steepest_adjacent_slope(soa, dep_mean, args.dt_lca)
     ind_slope = steepest_adjacent_slope(soa, ind_mean, args.dt_lca)
 
-
-    # Plot: mean ± SE in MILLISECONDS (match Pashler-style axes)
+    # Data transformation for plotting
     soa_arr = np.asarray(soa, float)
-    
-    # I am changing dt to be represented as 0.05 seconds instead of 0.1 seconds
-    # Change all multiplications to 1000 if you want dt to be represented as 0.1 seconds
-    # x-axis: SOA in ms
     soa_ms = soa_arr * args.dt_lca * 500.0
-
-    #soa_sec = soa_arr * args.dt_lca  # <-- NEW: x-axis in seconds
-
-    # y-axis: RT in ms (means + SE)
     dep_mean_ms = dep_mean * 500.0
     ind_mean_ms = ind_mean * 500.0
     dep_se_ms   = dep_se   * 500.0
     ind_se_ms   = ind_se   * 500.0
 
-    # Convert segment endpoints (still computed in steps) to ms for legend text
     dep_seg_ms = (dep_slope["seg"][0] * args.dt_lca * 500.0,
                   dep_slope["seg"][1] * args.dt_lca * 500.0)
-    ind_seg_ms = (ind_slope["seg"][0] * args.dt_lca * 500.0,
-                  ind_slope["seg"][1] * args.dt_lca * 500.0)
 
-    plt.figure(figsize=(7,4))
+    plt.figure(figsize=(8, 5))
 
-    plt.plot(soa_ms, dep_mean_ms, "x--",
-             label=(f"Dependent B→A | steepest {dep_seg_ms[0]:.0f}-{dep_seg_ms[1]:.0f} ms: "
-                    f"{dep_slope['slope_s_per_s']:.2f}"))
-    plt.fill_between(soa_ms, dep_mean_ms - dep_se_ms, dep_mean_ms + dep_se_ms, alpha=0.2)
+    # Plot Simulation Results
+    plt.plot(soa_ms, dep_mean_ms, "x--", color="#1f77b4", linewidth=1.5,
+             label=(f"Simulation B→A | steepest: {dep_slope['slope_s_per_s']:.2f}"))
+    plt.fill_between(soa_ms, dep_mean_ms - dep_se_ms, dep_mean_ms + dep_se_ms, color="#1f77b4", alpha=0.15)
 
-    plt.plot(soa_ms, ind_mean_ms, "x--",
-             label=(f"Independent C→A | steepest {ind_seg_ms[0]:.0f}-{ind_seg_ms[1]:.0f} ms: "
-                    f"{ind_slope['slope_s_per_s']:.2f}"))
-    plt.fill_between(soa_ms, ind_mean_ms - ind_se_ms, ind_mean_ms + ind_se_ms, alpha=0.2)
+    plt.plot(soa_ms, ind_mean_ms, "x--", color="#2ca02c", linewidth=1.5,
+             label=f"Simulation C→A")
+    plt.fill_between(soa_ms, ind_mean_ms - ind_se_ms, ind_mean_ms + ind_se_ms, color="#2ca02c", alpha=0.15)
+
+    # Add Pashler Curve
+    if args.add_pashler:
+        # Empirical points based on Pashler (1994) Fig 1
+        p_soa = np.array([50, 150, 300, 900], dtype=float)
+        p_rt2 = np.array([700, 600, 525, 500], dtype=float)
+        
+        if args.pashler_mode == "relative":
+            # Shift x so the Pashler curve starts at the same SOA as your simulation
+            p_soa = p_soa - p_soa[0] + soa_ms[0]
+            
+        if args.align_pashler_rt:
+            # Shift y so the Pashler curve starts at the same RT2 as your simulation
+            p_rt2 = p_rt2 - p_rt2[0] + dep_mean_ms[0]
+            
+        plt.plot(p_soa, p_rt2, "ko-", linewidth=2.5, markersize=8, alpha=0.7,
+                 label=f"Pashler (1994) Curve ({args.pashler_mode})")
+        
+        # Add visual slope marker near the first segment of Pashler curve
+        #plt.annotate("slope ≈ -1.0", xy=(p_soa[1], p_rt2[1]), xytext=(p_soa[1]+50, p_rt2[1]+40),
+        #             arrowprops=dict(arrowstyle="->", color='black'), fontsize=9)
 
     plt.xlabel("SOA (milliseconds)")
     plt.ylabel("RT2 (milliseconds)")
-    plt.title(f"Task 2 | p={args.persistence:.2f}")
-    plt.legend()
+    plt.title(f"Task 2 RT Comparison | Persistence p={args.persistence:.2f}")
+    plt.legend(fontsize='small')
+    plt.grid(True, linestyle=':', alpha=0.5)
     plt.tight_layout()
-
-
 
     out_path = Path(args.out_png)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(out_path, dpi=300)
     print("Saved plot:", out_path)
-
     plt.show()
 
 
