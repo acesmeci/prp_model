@@ -17,7 +17,7 @@ This project is designed to replicate and extend **Simulation Study 3** from:
 * notebooks/: For visualization and toy simulations
 ---
 
-## ⚡ Quick Start
+## Quick Start
 
 ### 1. Clone the repository
 ```bash
