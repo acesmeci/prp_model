@@ -14,7 +14,7 @@ This project is designed to replicate and extend **Simulation Study 3** from:
 * prp/: Core library for LCA dynamics and PRP trial logic.
 * scripts/: Command-line interfaces for training and analysis.
 * output/: Default directory for models and generated figures.
-
+* notebooks/: For visualization and toy simulations
 ---
 
 ## ⚡ Quick Start
