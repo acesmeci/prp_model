@@ -49,6 +49,7 @@ python -m scripts.run_prp_ensemble --ckpt_dir <checkpoint_path> --E 20 --workers
 Generate RT2 vs. SOA plots with empirical comparisons to Pashler (1994):
 ```bash
 python -m scripts.plot_prp_ensemble --ckpt_dir <checkpoint_path> --add_pashler --align_pashler_rt
+```
 
 For an exact match to the four SOAs (50, 150, 300, 900 ms) reported in Pashler (1994), use:
 ```bash
